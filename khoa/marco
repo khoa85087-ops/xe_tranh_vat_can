@@ -1,0 +1,283 @@
+void DZ(PINT16S W,PBIT B)
+{
+	#define SysRegAddr_HD_D_HM_M   
+
+	#define D W
+	#define M B
+    #define FD FW
+	/* ===== KHAI BAO =====
+	int i;               // so nguyen 16 bit co dau (-32768..32767)
+	long s = 0;          // so nguyen lon, tranh tran
+	float f;             // so thuc
+	int a[5];            // mang a[0]..a[4]
+	*/
+	
+
+	/* ===== GAN =====
+	i = 5;               // gan hang so
+	i = D[0];            // doc thanh ghi
+	D[10] = 123;         // ghi thanh ghi (doi that cua PLC)
+	D[11] = D[0] * 2;    // ghi ket qua tinh
+	M[0] = 1;            // bat bit
+	M[1] = 0;            // tat bit
+	M[2] = M[0];         // copy bit
+	FW[20] = 3.14;       // ghi float vao D20,D21 (xem bang kieu Float)
+	NOTE: float chiem 2 thanh ghi lien tiep
+	*/
+
+	/* ===== PHEP TOAN / SO SANH =====
+	+ - * / %            // cong tru nhan chia lay-du
+	== != > < >= <=      // so sanh
+	&& || !              // VA, HOAC, PHU DINH
+	i++  i--  i += 5     // tang giam nhanh
+	NOTE: int / int ra so nguyen (7/2=3). Muon so thuc: 7 / 2.0
+	NOTE: so sanh bang dung == 
+	NOTE: kiem tra khac 0 truoc khi chia
+	*/
+
+	/* ===== IF / ELSE =====
+	if (D[0] > 100)
+	{
+		M[0] = 1;
+	}
+	else if (D[0] > 50)
+	{
+		M[1] = 1;
+	}
+	else
+	{
+		M[0] = 0;
+	}
+	if (D[0] > 10 && D[1] < 20)   // ca hai dung
+	if (D[0] == 0 || D[1] == 0)   // mot trong hai dung
+	NOTE: 1 lenh thi bo duoc { }, nhieu lenh BAT BUOC co { }
+	*/
+
+
+	/* ===== FOR =====
+	for (i = 0; i < 10; i++)      // chay i = 0..9 (10 lan)
+	{
+		s = s + D[i];
+	}
+	NOTE: i < 10 la 10 lan, i <= 10 la 11 lan
+	NOTE: CAN THAN chi so mang, vuot vung se de len du lieu khac cua PLC
+	NOTE: lap nhieu lam tang thoi gian quet
+	*/
+
+	/* ===== WHILE =====
+	i = 0;
+	while (i < 5 && D[i] != 0)
+	{
+		i++;                      // BAT BUOC co dong lam dieu kien thay doi
+	}
+	NOTE: PHAI co dieu kien thoat, lap vo han = PLC treo / watchdog
+	NOTE: khong while(1), khong while cho X/M ngoai doi (trong 1 vong quet no khong doi)
+	NOTE: luon them gioi han so lan (i < 5)
+	*/
+
+	/* ===== BREAK / CONTINUE =====
+	break;      // thoat han vong lap
+	continue;   // bo qua lan nay, sang lan sau
+	*/
+
+	/* ===== NOTE CHUNG =====
+	- Ham khong return, ket qua ghi vao D, M qua con tro W, B
+	- Doi tham so/kieu: sua form Information -> Compile -> xoa khoi trong Ladder roi chen lai
+	- Ten ham, ten tham so phai khop form Information
+	- Moi lenh ket thuc bang ;
+	- Comment: // mot dong, nhieu dong
+	*/
+
+	/* ===== GOTO =====
+	if (D[0] < 0)
+		goto LOI;          // nhay toi nhan LOI
+
+	D[1] = D[0] * 2;       // chay binh thuong neu D[0] >= 0
+	goto KET_THUC;         // bo qua doan xu ly loi
+
+	LOI:                   // nhan, ket thuc bang dau :
+	M[0] = 1;              // xu ly loi
+
+	KET_THUC:
+	;                      // nhan phai di kem 1 lenh, dung ; trong
+	NOTE: nhan (LOI:, KET_THUC:) la ten tu dat, khong trung nhau
+	NOTE: chi nhay trong CUNG 1 ham
+	NOTE: nhan cuoi ham phai co lenh di kem, neu khong thi them ; trong
+	*/
+	
+    //TEN_HAM D0 M0
+   /* ===== HANG SO ===== */
+#define BAT       1
+#define TAT       0
+#define PI_V      3.14159265
+#define E_V       2.71828183
+#define SQRT2_V   1.41421356
+#define SQRT3_V   1.73205081
+#define LN2_V     0.69314718
+#define LN10_V    2.30258509
+#define DEG2RAD   0.01745329
+#define RAD2DEG   57.2957795     
+    /* ===== SO SANH, GIOI HAN ===== */
+#define MAX(a,b)            ((a) > (b) ? (a) : (b))
+#define MIN(a,b)            ((a) < (b) ? (a) : (b))
+#define MAX3(a,b,c)         MAX(MAX(a,b),c)
+#define MIN3(a,b,c)         MIN(MIN(a,b),c)
+#define MAX4(a,b,c,d)       MAX(MAX(a,b),MAX(c,d))
+#define MIN4(a,b,c,d)       MIN(MIN(a,b),MIN(c,d))
+#define TRUNG_VI3(a,b,c)    MAX(MIN(a,b),MIN(MAX(a,b),c))
+#define KEP(x,lo,hi)        ((x) < (lo) ? (lo) : ((x) > (hi) ? (hi) : (x)))
+#define TRONG(x,lo,hi)      ((x) >= (lo) && (x) <= (hi))
+#define NGOAI(x,lo,hi)      ((x) < (lo) || (x) > (hi))
+#define GAN_BANG(a,b,e)     (ABS((a) - (b)) <= (e))
+#define LA_ZERO(x,e)        (ABS(x) <= (e))
+#define KHOANG_CACH(a,b)    ABS((a) - (b))
+ 
+/* ===== SO HOC CO BAN ===== */
+#define ABS(x)              ((x) < 0 ? -(x) : (x))
+#define SIGN(x)             ((x) > 0 ? 1 : ((x) < 0 ? -1 : 0))
+#define SQR(x)              ((x) * (x))
+#define CUBE(x)             ((x) * (x) * (x))
+#define TB2(a,b)            (((a) + (b)) / 2)
+#define TB3(a,b,c)          (((a) + (b) + (c)) / 3)
+#define TB4(a,b,c,d)        (((a) + (b) + (c) + (d)) / 4)
+#define CHIA_AT(a,b)        ((b) != 0 ? (a) / (b) : 0)
+#define DU_AT(a,b)          ((b) != 0 ? (a) % (b) : 0)
+#define CHAN(x)             (((x) % 2) == 0)
+#define LE(x)               (((x) % 2) != 0)
+#define BOI_CUA(x,n)        (((x) % (n)) == 0)
+#define PHAN_TRAM(x,tong)   ((tong) != 0 ? ((long)(x) * 100 / (tong)) : 0)
+#define PHAN_TRAM_F(x,tong) ((tong) != 0 ? ((x) * 100.0 / (tong)) : 0)
+#define TANG_PT(cu,moi)     ((cu) != 0 ? (((moi) - (cu)) * 100.0 / (cu)) : 0)
+ 
+/* ===== LAM TRON, CAT ===== */
+#define CAT_NGUYEN(x)       ((long)(x))
+#define PHAN_LE(x)          ((x) - (long)(x))
+#define LAM_TRON(x)         ((x) >= 0 ? (long)((x) + 0.5) : (long)((x) - 0.5))
+#define FLOOR(x)            ((x) >= 0 ? (long)(x) : (((long)(x) == (x)) ? (long)(x) : (long)(x) - 1))
+#define CEIL(x)             ((x) >= 0 ? (((long)(x) == (x)) ? (long)(x) : (long)(x) + 1) : (long)(x))
+/* LAM_TRON_N: lam tron den boi so n, vd LAM_TRON_N(123,5) = 125 */
+#define LAM_TRON_N(x,n)     (LAM_TRON((x) / (float)(n)) * (n))
+/* LAM_TRON_SO_LE: giu d chu so thap phan, d la 10, 100, 1000 (vd 100 = 2 chu so) */
+#define LAM_TRON_SL(x,d)    (LAM_TRON((x) * (d)) / (float)(d))
+ 
+/* ===== SCALE, NOI SUY, VUNG CHET ===== */
+/* SCALE: x (il..ih) -> (ol..oh), vd 4000..20000 -> 0..100 */
+#define SCALE(x,il,ih,ol,oh) \
+	(((float)((x)-(il))) * ((oh)-(ol)) / ((ih)-(il)) + (ol))
+/* SCALE_KEP: nhu SCALE nhung chan trong ol..oh */
+#define SCALE_KEP(x,il,ih,ol,oh) \
+	KEP(SCALE(x,il,ih,ol,oh),ol,oh)
+/* SCALE_NGUOC: 4000..20000 -> 100..0 (ol > oh) dung SCALE voi ol, oh dao nhau */
+#define LERP(a,b,t)         ((a) + ((b) - (a)) * (t))
+#define DEADBAND(x,db)      (ABS(x) < (db) ? 0 : (x))
+/* CHUAN_HOA: dua x ve 0.0..1.0 trong khoang lo..hi */
+#define CHUAN_HOA(x,lo,hi)  (((float)((x) - (lo))) / ((hi) - (lo)))
+/* THANH_PHAN_TRAM: dua x (lo..hi) ve 0..100 va chan */
+#define PT_KEP(x,lo,hi)     KEP(((float)((x) - (lo)) * 100.0 / ((hi) - (lo))), 0.0, 100.0)
+ 
+/* ===== DOI DON VI ===== */
+#define RAD(deg)            ((deg) * DEG2RAD)
+#define DEG(rad)            ((rad) * RAD2DEG)
+#define C2F(c)              ((c) * 1.8 + 32.0)
+#define F2C(f)              (((f) - 32.0) / 1.8)
+#define C2K(c)              ((c) + 273.15)
+#define K2C(k)              ((k) - 273.15)
+#define BAR2PSI(b)          ((b) * 14.5038)
+#define PSI2BAR(p)          ((p) / 14.5038)
+#define BAR2KPA(b)          ((b) * 100.0)
+#define KPA2BAR(k)          ((k) / 100.0)
+#define BAR2MPA(b)          ((b) / 10.0)
+#define MM2INCH(m)          ((m) / 25.4)
+#define INCH2MM(i)          ((i) * 25.4)
+#define M2FT(m)             ((m) * 3.28084)
+#define FT2M(f)             ((f) / 3.28084)
+#define KG2LB(k)            ((k) * 2.20462)
+#define LB2KG(l)            ((l) / 2.20462)
+#define L2GAL(l)            ((l) * 0.264172)
+#define GAL2L(g)            ((g) / 0.264172)
+#define MS2KMH(v)           ((v) * 3.6)
+#define KMH2MS(v)           ((v) / 3.6)
+#define HP2KW(h)            ((h) * 0.7457)
+#define KW2HP(k)            ((k) / 0.7457)
+#define RPM2RADS(n)         ((n) * 0.10471976)
+#define RADS2RPM(w)         ((w) * 9.5492966)
+#define RPM2HZ(n)           ((n) / 60.0)
+#define HZ2RPM(f)           ((f) * 60.0)
+ 
+/* ===== THOI GIAN ===== */
+#define MS2S(ms)            ((ms) / 1000.0)
+#define S2MS(s)             ((s) * 1000L)
+#define S2PHUT(s)           ((s) / 60.0)
+#define PHUT2S(p)           ((p) * 60L)
+#define PHUT2GIO(p)         ((p) / 60.0)
+#define GIO2PHUT(h)         ((h) * 60L)
+#define GIO2S(h)            ((h) * 3600L)
+#define NGAY2GIO(d)         ((d) * 24L)
+ 
+/* ===== HINH HOC, CONG THUC ===== */
+#define CHU_VI_TRON(r)          (2 * PI_V * (r))
+#define DT_TRON(r)              (PI_V * (r) * (r))
+#define DT_CHU_NHAT(a,b)        ((a) * (b))
+#define CHU_VI_CHU_NHAT(a,b)    (2 * ((a) + (b)))
+#define DT_TAM_GIAC(day,cao)    ((day) * (cao) / 2.0)
+#define DT_HINH_THANG(a,b,h)    (((a) + (b)) * (h) / 2.0)
+#define TT_CAU(r)               (4.0 / 3.0 * PI_V * (r) * (r) * (r))
+#define TT_TRU(r,h)             (PI_V * (r) * (r) * (h))
+#define TT_HOP(a,b,c)           ((a) * (b) * (c))
+#define TT_NON(r,h)             (PI_V * (r) * (r) * (h) / 3.0)
+#define DT_CAU(r)               (4 * PI_V * (r) * (r))
+/* canh huyen^2 (chua lay can): can bac 2 cua ket qua nay se ra canh huyen */
+#define HUYEN2(a,b)             ((a) * (a) + (b) * (b))
+/* delta phuong trinh bac 2: a*x^2 + b*x + c = 0 */
+#define DELTA(a,b,c)            ((b) * (b) - 4 * (a) * (c))
+ 
+/* ===== DIEN, CO KHI ===== */
+#define CONG_SUAT_1PHA(U,I,cs)  ((U) * (I) * (cs))
+#define CONG_SUAT_3PHA(U,I,cs)  (SQRT3_V * (U) * (I) * (cs))
+#define DONG_DIEN(P,U)          ((U) != 0 ? ((P) / (U)) : 0)
+#define DIEN_AP(I,R)            ((I) * (R))
+#define DIEN_TRO(U,I)           ((I) != 0 ? ((U) / (I)) : 0)
+#define DIEN_TRO_SONG_SONG(a,b) (((a) + (b)) != 0 ? ((a) * (b) / ((a) + (b))) : 0)
+#define NANG_LUONG(P,t)         ((P) * (t))
+#define MOMEN_XOAN(P,n)         ((n) != 0 ? (9550.0 * (P) / (n)) : 0)
+#define TOC_DO_TRUC(f,p)        ((p) != 0 ? (120.0 * (f) / (p)) : 0)
+#define TY_SO_TRUYEN(vao,ra)    ((ra) != 0 ? ((vao) / (ra)) : 0)
+#define LUU_LUONG(A,v)          ((A) * (v))
+#define VAN_TOC(s,t)            ((t) != 0 ? ((s) / (t)) : 0)
+#define GIA_TOC(dv,t)           ((t) != 0 ? ((dv) / (t)) : 0)
+#define XUNG2MM(xung,xung_vong,mm_vong) \
+	((xung_vong) != 0 ? ((float)(xung) / (xung_vong) * (mm_vong)) : 0)
+#define MM2XUNG(mm,xung_vong,mm_vong) \
+	((mm_vong) != 0 ? ((float)(mm) / (mm_vong) * (xung_vong)) : 0)
+ 
+/* ===== BIT / BYTE / WORD TREN SO NGUYEN (khong phai bit M) ===== */
+/* vd: BIT_SET(D[0], 3) bat bit 3 cua D0 */
+#define BIT_SET(x,n)        ((x) |= (1 << (n)))
+#define BIT_CLR(x,n)        ((x) &= ~(1 << (n)))
+#define BIT_TGL(x,n)        ((x) ^= (1 << (n)))
+#define BIT_TST(x,n)        (((x) >> (n)) & 1)
+#define BIT_GHI(x,n,v)      ((v) ? BIT_SET(x,n) : BIT_CLR(x,n))
+#define MASK(n)             ((1 << (n)) - 1)
+#define LAY_BIT_TRUONG(x,vt,len)  (((x) >> (vt)) & MASK(len))
+#define LOW_BYTE(x)         ((x) & 0xFF)
+#define HIGH_BYTE(x)        (((x) >> 8) & 0xFF)
+#define GHEP_16(hi,lo)      ((((hi) & 0xFF) << 8) | ((lo) & 0xFF))
+#define DOI_BYTE(x)         ((((x) & 0xFF) << 8) | (((x) >> 8) & 0xFF))
+#define LOW_WORD(x)         ((x) & 0xFFFF)
+#define HIGH_WORD(x)        (((x) >> 16) & 0xFFFF)
+#define GHEP_32(hi,lo)      ((((long)(hi)) << 16) | ((lo) & 0xFFFF))
+#define SWAP(t,a,b)         do { t tmp_ = (a); (a) = (b); (b) = tmp_; } while(0)
+#define SWAP_XOR(a,b)       do { (a) ^= (b); (b) ^= (a); (a) ^= (b); } while(0)
+#define LA_LUY_THUA_2(x)    (((x) > 0) && (((x) & ((x) - 1)) == 0))
+ 
+/* ===== BCD, GRAY ===== */
+#define BCD2BIN(x)          ((((x) >> 4) & 0xF) * 10 + ((x) & 0xF))
+#define BIN2BCD(x)          ((((x) / 10) << 4) | ((x) % 10))
+#define BIN2GRAY(x)         ((x) ^ ((x) >> 1))
+ 
+/* ===== CHUYEN KIEU ===== */
+#define SANG_FLOAT(x)       ((float)(x))
+#define SANG_INT(x)         ((int)(x))
+#define SANG_LONG(x)        ((long)(x))
+#define BOOL(x)             ((x) ? 1 : 0)
+}
