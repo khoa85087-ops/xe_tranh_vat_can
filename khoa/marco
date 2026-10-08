@@ -16,10 +16,6 @@ void DZ(PINT16S W,PBIT B)
    ===================================================================== */
 
 /* ===== HẰNG SỐ ===== */
-#define BAT       1
-//  VD: M[0] = BAT;                        // bật M0 (giống M[0] = 1)
-#define TAT       0
-//  VD: M[1] = TAT;                        // tắt M1
 #define PI_V      3.14159265
 //  VD: FW[20] = PI_V * 2;                 // ra 6.283
 #define E_V       2.71828183
