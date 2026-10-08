@@ -6,106 +6,8 @@ void DZ(PINT16S W,PBIT B)
 	#define M B
     #define FD FW
 	/* ===== KHAI BAO =====
-	int i;               // so nguyen 16 bit co dau (-32768..32767)
-	long s = 0;          // so nguyen lon, tranh tran
-	float f;             // so thuc
-	int a[5];            // mang a[0]..a[4]
-	*/
+
 	
-
-	/* ===== GAN =====
-	i = 5;               // gan hang so
-	i = D[0];            // doc thanh ghi
-	D[10] = 123;         // ghi thanh ghi (doi that cua PLC)
-	D[11] = D[0] * 2;    // ghi ket qua tinh
-	M[0] = 1;            // bat bit
-	M[1] = 0;            // tat bit
-	M[2] = M[0];         // copy bit
-	FW[20] = 3.14;       // ghi float vao D20,D21 (xem bang kieu Float)
-	NOTE: float chiem 2 thanh ghi lien tiep
-	*/
-
-	/* ===== PHEP TOAN / SO SANH =====
-	+ - * / %            // cong tru nhan chia lay-du
-	== != > < >= <=      // so sanh
-	&& || !              // VA, HOAC, PHU DINH
-	i++  i--  i += 5     // tang giam nhanh
-	NOTE: int / int ra so nguyen (7/2=3). Muon so thuc: 7 / 2.0
-	NOTE: so sanh bang dung == 
-	NOTE: kiem tra khac 0 truoc khi chia
-	*/
-
-	/* ===== IF / ELSE =====
-	if (D[0] > 100)
-	{
-		M[0] = 1;
-	}
-	else if (D[0] > 50)
-	{
-		M[1] = 1;
-	}
-	else
-	{
-		M[0] = 0;
-	}
-	if (D[0] > 10 && D[1] < 20)   // ca hai dung
-	if (D[0] == 0 || D[1] == 0)   // mot trong hai dung
-	NOTE: 1 lenh thi bo duoc { }, nhieu lenh BAT BUOC co { }
-	*/
-
-
-	/* ===== FOR =====
-	for (i = 0; i < 10; i++)      // chay i = 0..9 (10 lan)
-	{
-		s = s + D[i];
-	}
-	NOTE: i < 10 la 10 lan, i <= 10 la 11 lan
-	NOTE: CAN THAN chi so mang, vuot vung se de len du lieu khac cua PLC
-	NOTE: lap nhieu lam tang thoi gian quet
-	*/
-
-	/* ===== WHILE =====
-	i = 0;
-	while (i < 5 && D[i] != 0)
-	{
-		i++;                      // BAT BUOC co dong lam dieu kien thay doi
-	}
-	NOTE: PHAI co dieu kien thoat, lap vo han = PLC treo / watchdog
-	NOTE: khong while(1), khong while cho X/M ngoai doi (trong 1 vong quet no khong doi)
-	NOTE: luon them gioi han so lan (i < 5)
-	*/
-
-	/* ===== BREAK / CONTINUE =====
-	break;      // thoat han vong lap
-	continue;   // bo qua lan nay, sang lan sau
-	*/
-
-	/* ===== NOTE CHUNG =====
-	- Ham khong return, ket qua ghi vao D, M qua con tro W, B
-	- Doi tham so/kieu: sua form Information -> Compile -> xoa khoi trong Ladder roi chen lai
-	- Ten ham, ten tham so phai khop form Information
-	- Moi lenh ket thuc bang ;
-	- Comment: // mot dong, nhieu dong
-	*/
-
-	/* ===== GOTO =====
-	if (D[0] < 0)
-		goto LOI;          // nhay toi nhan LOI
-
-	D[1] = D[0] * 2;       // chay binh thuong neu D[0] >= 0
-	goto KET_THUC;         // bo qua doan xu ly loi
-
-	LOI:                   // nhan, ket thuc bang dau :
-	M[0] = 1;              // xu ly loi
-
-	KET_THUC:
-	;                      // nhan phai di kem 1 lenh, dung ; trong
-	NOTE: nhan (LOI:, KET_THUC:) la ten tu dat, khong trung nhau
-	NOTE: chi nhay trong CUNG 1 ham
-	NOTE: nhan cuoi ham phai co lenh di kem, neu khong thi them ; trong
-	*/
-	
-    //TEN_HAM D0 M0
    /* ===== HANG SO ===== */
 #define BAT       1
 #define TAT       0
@@ -280,4 +182,9 @@ void DZ(PINT16S W,PBIT B)
 #define SANG_INT(x)         ((int)(x))
 #define SANG_LONG(x)        ((long)(x))
 #define BOOL(x)             ((x) ? 1 : 0)
+
+/* ===== khai bao in/out ===== */
+/* ===== tinh toan ===== */
+/* ===== gan lai gia tri x--->d ===== */
+
 }
