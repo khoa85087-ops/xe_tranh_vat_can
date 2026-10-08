@@ -5,186 +5,329 @@ void DZ(PINT16S W,PBIT B)
 	#define D W
 	#define M B
     #define FD FW
-	/* ===== KHAI BAO =====
 
-	
-   /* ===== HANG SO ===== */
+/* =====================================================================
+   QUY TẮC CHUNG
+   - Số nguyên gán vào D, số thực gán vào FW, đúng/sai gán vào M
+   - FW chiếm 2 thanh ghi, đặt cách nhau 2: FW[20], FW[22], FW[24]...
+   - Kết quả > 32767 thì dùng long hoặc FW, nếu không sẽ tràn
+   - Đừng truyền biểu thức có ++ -- vào macro
+   - Dòng "VD" là ví dụ nằm trong comment, muốn chạy thì bỏ // đi
+   ===================================================================== */
+
+/* ===== HẰNG SỐ ===== */
 #define BAT       1
+//  VD: M[0] = BAT;                        // bật M0 (giống M[0] = 1)
 #define TAT       0
+//  VD: M[1] = TAT;                        // tắt M1
 #define PI_V      3.14159265
+//  VD: FW[20] = PI_V * 2;                 // ra 6.283
 #define E_V       2.71828183
+//  VD: FW[22] = E_V;                      // số e = 2.718
 #define SQRT2_V   1.41421356
+//  VD: FW[24] = SQRT2_V;                  // căn 2 = 1.414
 #define SQRT3_V   1.73205081
+//  VD: FW[26] = SQRT3_V;                  // căn 3 = 1.732
 #define LN2_V     0.69314718
+//  VD: FW[28] = LN2_V;                    // ln(2) = 0.693
 #define LN10_V    2.30258509
+//  VD: FW[30] = LN10_V;                   // ln(10) = 2.303
 #define DEG2RAD   0.01745329
-#define RAD2DEG   57.2957795     
-    /* ===== SO SANH, GIOI HAN ===== */
+//  VD: FW[32] = 90 * DEG2RAD;             // 90 độ ra 1.5708 rad
+#define RAD2DEG   57.2957795
+//  VD: FW[34] = 3.1416 * RAD2DEG;         // pi rad ra 180 độ
+
+/* ===== SO SÁNH, GIỚI HẠN ===== */
 #define MAX(a,b)            ((a) > (b) ? (a) : (b))
+//  VD: D[10] = MAX(D[0], D[1]);           // lấy số lớn hơn của D0 và D1
 #define MIN(a,b)            ((a) < (b) ? (a) : (b))
+//  VD: D[11] = MIN(D[0], D[1]);           // lấy số nhỏ hơn của D0 và D1
 #define MAX3(a,b,c)         MAX(MAX(a,b),c)
+//  VD: D[12] = MAX3(D[0], D[1], D[2]);    // lớn nhất trong 3 số
 #define MIN3(a,b,c)         MIN(MIN(a,b),c)
+//  VD: D[13] = MIN3(D[0], D[1], D[2]);    // nhỏ nhất trong 3 số
 #define MAX4(a,b,c,d)       MAX(MAX(a,b),MAX(c,d))
+//  VD: D[14] = MAX4(D[0], D[1], D[2], D[3]);   // lớn nhất trong 4 số
 #define MIN4(a,b,c,d)       MIN(MIN(a,b),MIN(c,d))
+//  VD: D[15] = MIN4(D[0], D[1], D[2], D[3]);   // nhỏ nhất trong 4 số
 #define TRUNG_VI3(a,b,c)    MAX(MIN(a,b),MIN(MAX(a,b),c))
+//  VD: D[16] = TRUNG_VI3(D[0], D[1], D[2]);    // số ở giữa (5,9,7 ra 7), lọc nhiễu
 #define KEP(x,lo,hi)        ((x) < (lo) ? (lo) : ((x) > (hi) ? (hi) : (x)))
+//  VD: D[17] = KEP(D[0], 0, 100);         // D0=150 ra 100, D0=-5 ra 0
 #define TRONG(x,lo,hi)      ((x) >= (lo) && (x) <= (hi))
+//  VD: M[0] = TRONG(D[0], 10, 50);        // D0 nằm trong 10..50 thì M0 = 1
 #define NGOAI(x,lo,hi)      ((x) < (lo) || (x) > (hi))
+//  VD: M[1] = NGOAI(D[0], 10, 50);        // D0 nằm ngoài 10..50 thì M1 = 1
 #define GAN_BANG(a,b,e)     (ABS((a) - (b)) <= (e))
+//  VD: M[2] = GAN_BANG(D[0], D[1], 2);    // D0 và D1 chênh không quá 2 thì M2 = 1
 #define LA_ZERO(x,e)        (ABS(x) <= (e))
+//  VD: M[3] = LA_ZERO(D[0], 1);           // D0 nằm trong -1..1 thì M3 = 1
 #define KHOANG_CACH(a,b)    ABS((a) - (b))
- 
-/* ===== SO HOC CO BAN ===== */
+//  VD: D[18] = KHOANG_CACH(D[0], D[1]);   // khoảng cách giữa D0 và D1 (3 và 10 ra 7)
+
+/* ===== SỐ HỌC CƠ BẢN ===== */
 #define ABS(x)              ((x) < 0 ? -(x) : (x))
+//  VD: D[20] = ABS(D[0]);                 // bỏ dấu âm (-5 ra 5)
 #define SIGN(x)             ((x) > 0 ? 1 : ((x) < 0 ? -1 : 0))
+//  VD: D[21] = SIGN(D[0]);                // dương ra 1, âm ra -1, bằng 0 ra 0
 #define SQR(x)              ((x) * (x))
+//  VD: D[22] = SQR(D[0]);                 // bình phương (4 ra 16)
 #define CUBE(x)             ((x) * (x) * (x))
+//  VD: D[23] = CUBE(D[0]);                // lập phương (3 ra 27)
 #define TB2(a,b)            (((a) + (b)) / 2)
+//  VD: D[24] = TB2(D[0], D[1]);           // trung bình 2 số (4 và 6 ra 5), số nguyên bị cắt lẻ
 #define TB3(a,b,c)          (((a) + (b) + (c)) / 3)
+//  VD: D[25] = TB3(D[0], D[1], D[2]);     // trung bình 3 số (3,6,9 ra 6)
 #define TB4(a,b,c,d)        (((a) + (b) + (c) + (d)) / 4)
+//  VD: D[26] = TB4(D[0], D[1], D[2], D[3]);    // trung bình 4 số
 #define CHIA_AT(a,b)        ((b) != 0 ? (a) / (b) : 0)
+//  VD: D[27] = CHIA_AT(D[0], D[1]);       // D0 chia D1, nếu D1 = 0 thì ra 0, không lỗi
 #define DU_AT(a,b)          ((b) != 0 ? (a) % (b) : 0)
+//  VD: D[28] = DU_AT(D[0], 7);            // số dư khi chia 7 (10 ra 3)
 #define CHAN(x)             (((x) % 2) == 0)
+//  VD: M[4] = CHAN(D[0]);                 // D0 là số chẵn thì M4 = 1
 #define LE(x)               (((x) % 2) != 0)
+//  VD: M[5] = LE(D[0]);                   // D0 là số lẻ thì M5 = 1
 #define BOI_CUA(x,n)        (((x) % (n)) == 0)
+//  VD: M[6] = BOI_CUA(D[0], 10);          // D0 chia hết cho 10 thì M6 = 1
 #define PHAN_TRAM(x,tong)   ((tong) != 0 ? ((long)(x) * 100 / (tong)) : 0)
+//  VD: D[29] = PHAN_TRAM(D[0], D[1]);     // D0 là bao nhiêu % của D1 (25 trên 200 ra 12), cắt lẻ
 #define PHAN_TRAM_F(x,tong) ((tong) != 0 ? ((x) * 100.0 / (tong)) : 0)
+//  VD: FW[40] = PHAN_TRAM_F(D[0], D[1]);  // như trên nhưng có số lẻ (25 trên 200 ra 12.5)
 #define TANG_PT(cu,moi)     ((cu) != 0 ? (((moi) - (cu)) * 100.0 / (cu)) : 0)
- 
-/* ===== LAM TRON, CAT ===== */
+//  VD: FW[42] = TANG_PT(D[0], D[1]);      // % tăng từ D0 lên D1 (100 lên 120 ra 20, 100 xuống 80 ra -20)
+
+/* ===== LÀM TRÒN, CẮT ===== */
 #define CAT_NGUYEN(x)       ((long)(x))
+//  VD: D[30] = CAT_NGUYEN(FW[40]);        // bỏ phần lẻ (3.7 ra 3, -3.7 ra -3)
 #define PHAN_LE(x)          ((x) - (long)(x))
+//  VD: FW[44] = PHAN_LE(FW[40]);          // chỉ lấy phần lẻ (3.7 ra 0.7)
 #define LAM_TRON(x)         ((x) >= 0 ? (long)((x) + 0.5) : (long)((x) - 0.5))
+//  VD: D[31] = LAM_TRON(FW[40]);          // làm tròn gần nhất (3.7 ra 4, 3.2 ra 3)
 #define FLOOR(x)            ((x) >= 0 ? (long)(x) : (((long)(x) == (x)) ? (long)(x) : (long)(x) - 1))
+//  VD: D[32] = FLOOR(FW[40]);             // làm tròn xuống (3.7 ra 3, -3.2 ra -4)
 #define CEIL(x)             ((x) >= 0 ? (((long)(x) == (x)) ? (long)(x) : (long)(x) + 1) : (long)(x))
-/* LAM_TRON_N: lam tron den boi so n, vd LAM_TRON_N(123,5) = 125 */
+//  VD: D[33] = CEIL(FW[40]);              // làm tròn lên (3.2 ra 4, -3.7 ra -3)
+/* LAM_TRON_N: làm tròn đến bội số của n, vd LAM_TRON_N(123,5) = 125 */
 #define LAM_TRON_N(x,n)     (LAM_TRON((x) / (float)(n)) * (n))
-/* LAM_TRON_SO_LE: giu d chu so thap phan, d la 10, 100, 1000 (vd 100 = 2 chu so) */
+//  VD: D[34] = LAM_TRON_N(D[0], 5);       // làm tròn về bội số của 5 (123 ra 125)
+/* LAM_TRON_SL: giữ d chữ số thập phân, d là 10, 100, 1000 (vd 100 = 2 chữ số) */
 #define LAM_TRON_SL(x,d)    (LAM_TRON((x) * (d)) / (float)(d))
- 
-/* ===== SCALE, NOI SUY, VUNG CHET ===== */
-/* SCALE: x (il..ih) -> (ol..oh), vd 4000..20000 -> 0..100 */
+//  VD: FW[46] = LAM_TRON_SL(FW[40], 100); // giữ 2 chữ số lẻ (3.14159 ra 3.14)
+
+/* ===== SCALE (ĐỔI GIÁ TRỊ CẢM BIẾN) ===== */
+/* Nhớ: "x chạy từ (il..ih) đổi thành (ol..oh)", vào trước ra sau */
+/* SCALE: không chặn. Nếu il = ih thì ra ol (không chia 0) */
 #define SCALE(x,il,ih,ol,oh) \
-	(((float)((x)-(il))) * ((oh)-(ol)) / ((ih)-(il)) + (ol))
-/* SCALE_KEP: nhu SCALE nhung chan trong ol..oh */
+	(((ih) != (il)) ? (((float)((x)-(il))) * ((oh)-(ol)) / ((ih)-(il)) + (ol)) : (ol))
+//  VD: FW[50] = SCALE(D[0], 4000, 20000, 0, 100);       // 4-20mA ra 0..100%, vượt khoảng thì ra quá 100 hoặc âm
+/* SCALE_KEP: như SCALE nhưng chặn trong ol..oh. Dùng được cả khi scale ngược (ol > oh) */
 #define SCALE_KEP(x,il,ih,ol,oh) \
-	KEP(SCALE(x,il,ih,ol,oh),ol,oh)
-/* SCALE_NGUOC: 4000..20000 -> 100..0 (ol > oh) dung SCALE voi ol, oh dao nhau */
-#define LERP(a,b,t)         ((a) + ((b) - (a)) * (t))
-#define DEADBAND(x,db)      (ABS(x) < (db) ? 0 : (x))
-/* CHUAN_HOA: dua x ve 0.0..1.0 trong khoang lo..hi */
-#define CHUAN_HOA(x,lo,hi)  (((float)((x) - (lo))) / ((hi) - (lo)))
-/* THANH_PHAN_TRAM: dua x (lo..hi) ve 0..100 va chan */
+	KEP(SCALE(x,il,ih,ol,oh), MIN(ol,oh), MAX(ol,oh))
+//  VD: FW[52] = SCALE_KEP(D[0], 4000, 20000, 0, 100);   // như trên nhưng bị chặn trong 0..100 (nên dùng cái này)
+/* SCALE_D: như SCALE_KEP nhưng làm tròn ra số nguyên, gán thẳng vào D */
+#define SCALE_D(x,il,ih,ol,oh) \
+	LAM_TRON(SCALE_KEP(x,il,ih,ol,oh))
+//  VD: D[35] = SCALE_D(D[1], 0, 4095, 0, 1000);         // analog 0..4095 ra số nguyên 0..1000
+/* PT_KEP: x (lo..hi) -> 0..100, có chặn. Nhớ để lo khác hi */
 #define PT_KEP(x,lo,hi)     KEP(((float)((x) - (lo)) * 100.0 / ((hi) - (lo))), 0.0, 100.0)
- 
-/* ===== DOI DON VI ===== */
+//  VD: FW[54] = PT_KEP(D[0], 4000, 20000);              // đổi nhanh ra phần trăm 0..100
+
+/* ===== ĐỔI ĐƠN VỊ (kết quả là số thực, gán vào FW) ===== */
 #define RAD(deg)            ((deg) * DEG2RAD)
+//  VD: FW[60] = RAD(180);                 // 180 độ ra 3.1416 rad
 #define DEG(rad)            ((rad) * RAD2DEG)
+//  VD: FW[62] = DEG(1.5708);              // 1.5708 rad ra 90 độ
 #define C2F(c)              ((c) * 1.8 + 32.0)
+//  VD: FW[64] = C2F(100);                 // 100 độ C ra 212 độ F
 #define F2C(f)              (((f) - 32.0) / 1.8)
+//  VD: FW[66] = F2C(212);                 // 212 độ F ra 100 độ C
 #define C2K(c)              ((c) + 273.15)
+//  VD: FW[68] = C2K(0);                   // 0 độ C ra 273.15 K
 #define K2C(k)              ((k) - 273.15)
+//  VD: FW[70] = K2C(273.15);              // 273.15 K ra 0 độ C
 #define BAR2PSI(b)          ((b) * 14.5038)
+//  VD: FW[72] = BAR2PSI(10);              // 10 bar ra 145.04 psi
 #define PSI2BAR(p)          ((p) / 14.5038)
+//  VD: FW[74] = PSI2BAR(145.04);          // 145.04 psi ra 10 bar
 #define BAR2KPA(b)          ((b) * 100.0)
+//  VD: FW[76] = BAR2KPA(1);               // 1 bar ra 100 kPa
 #define KPA2BAR(k)          ((k) / 100.0)
+//  VD: FW[78] = KPA2BAR(100);             // 100 kPa ra 1 bar
 #define BAR2MPA(b)          ((b) / 10.0)
+//  VD: FW[80] = BAR2MPA(150);             // 150 bar ra 15 MPa
 #define MM2INCH(m)          ((m) / 25.4)
+//  VD: FW[82] = MM2INCH(25.4);            // 25.4 mm ra 1 inch
 #define INCH2MM(i)          ((i) * 25.4)
+//  VD: FW[84] = INCH2MM(1);               // 1 inch ra 25.4 mm
 #define M2FT(m)             ((m) * 3.28084)
+//  VD: FW[86] = M2FT(1);                  // 1 mét ra 3.28 feet
 #define FT2M(f)             ((f) / 3.28084)
+//  VD: FW[88] = FT2M(3.28084);            // 3.28 feet ra 1 mét
 #define KG2LB(k)            ((k) * 2.20462)
+//  VD: FW[90] = KG2LB(1);                 // 1 kg ra 2.2046 pound
 #define LB2KG(l)            ((l) / 2.20462)
+//  VD: FW[92] = LB2KG(2.20462);           // 2.2046 pound ra 1 kg
 #define L2GAL(l)            ((l) * 0.264172)
+//  VD: FW[94] = L2GAL(1);                 // 1 lít ra 0.264 gallon
 #define GAL2L(g)            ((g) / 0.264172)
+//  VD: FW[96] = GAL2L(1);                 // 1 gallon ra 3.785 lít
 #define MS2KMH(v)           ((v) * 3.6)
+//  VD: FW[98] = MS2KMH(10);               // 10 m/s ra 36 km/h
 #define KMH2MS(v)           ((v) / 3.6)
+//  VD: FW[100] = KMH2MS(36);              // 36 km/h ra 10 m/s
 #define HP2KW(h)            ((h) * 0.7457)
+//  VD: FW[102] = HP2KW(1);                // 1 mã lực ra 0.7457 kW
 #define KW2HP(k)            ((k) / 0.7457)
+//  VD: FW[104] = KW2HP(0.7457);           // 0.7457 kW ra 1 mã lực
 #define RPM2RADS(n)         ((n) * 0.10471976)
+//  VD: FW[106] = RPM2RADS(60);            // 60 vòng/phút ra 6.283 rad/s
 #define RADS2RPM(w)         ((w) * 9.5492966)
+//  VD: FW[108] = RADS2RPM(6.283);         // 6.283 rad/s ra 60 vòng/phút
 #define RPM2HZ(n)           ((n) / 60.0)
+//  VD: FW[110] = RPM2HZ(1500);            // 1500 vòng/phút ra 25 Hz
 #define HZ2RPM(f)           ((f) * 60.0)
- 
-/* ===== THOI GIAN ===== */
+//  VD: FW[112] = HZ2RPM(25);              // 25 Hz ra 1500 vòng/phút
+
+/* ===== THỜI GIAN ===== */
 #define MS2S(ms)            ((ms) / 1000.0)
+//  VD: FW[120] = MS2S(1500);              // 1500 ms ra 1.5 giây
 #define S2MS(s)             ((s) * 1000L)
+//  VD: D[40] = S2MS(5);                   // 5 giây ra 5000 ms
 #define S2PHUT(s)           ((s) / 60.0)
+//  VD: FW[122] = S2PHUT(90);              // 90 giây ra 1.5 phút
 #define PHUT2S(p)           ((p) * 60L)
+//  VD: D[41] = PHUT2S(3);                 // 3 phút ra 180 giây
 #define PHUT2GIO(p)         ((p) / 60.0)
+//  VD: FW[124] = PHUT2GIO(90);            // 90 phút ra 1.5 giờ
 #define GIO2PHUT(h)         ((h) * 60L)
+//  VD: D[42] = GIO2PHUT(2);               // 2 giờ ra 120 phút
 #define GIO2S(h)            ((h) * 3600L)
+//  VD: D[43] = GIO2S(1);                  // 1 giờ ra 3600 giây (GIO2S(10) = 36000 sẽ tràn D)
 #define NGAY2GIO(d)         ((d) * 24L)
- 
-/* ===== HINH HOC, CONG THUC ===== */
+//  VD: D[44] = NGAY2GIO(2);               // 2 ngày ra 48 giờ
+
+/* ===== HÌNH HỌC, CÔNG THỨC (gán vào FW) ===== */
 #define CHU_VI_TRON(r)          (2 * PI_V * (r))
+//  VD: FW[130] = CHU_VI_TRON(1);          // chu vi tròn bán kính 1 ra 6.283
 #define DT_TRON(r)              (PI_V * (r) * (r))
+//  VD: FW[132] = DT_TRON(2);              // diện tích tròn bán kính 2 ra 12.566
 #define DT_CHU_NHAT(a,b)        ((a) * (b))
+//  VD: FW[134] = DT_CHU_NHAT(3, 4);       // diện tích chữ nhật 3x4 ra 12
 #define CHU_VI_CHU_NHAT(a,b)    (2 * ((a) + (b)))
+//  VD: FW[136] = CHU_VI_CHU_NHAT(3, 4);   // chu vi chữ nhật 3x4 ra 14
 #define DT_TAM_GIAC(day,cao)    ((day) * (cao) / 2.0)
+//  VD: FW[138] = DT_TAM_GIAC(6, 4);       // diện tích tam giác đáy 6 cao 4 ra 12
 #define DT_HINH_THANG(a,b,h)    (((a) + (b)) * (h) / 2.0)
+//  VD: FW[140] = DT_HINH_THANG(3, 5, 2);  // hình thang đáy 3 và 5, cao 2 ra 8
 #define TT_CAU(r)               (4.0 / 3.0 * PI_V * (r) * (r) * (r))
+//  VD: FW[142] = TT_CAU(1);               // thể tích cầu bán kính 1 ra 4.189
 #define TT_TRU(r,h)             (PI_V * (r) * (r) * (h))
+//  VD: FW[144] = TT_TRU(0.5, 2.0);        // thể tích bồn trụ bán kính 0.5 cao 2 ra 1.571
 #define TT_HOP(a,b,c)           ((a) * (b) * (c))
+//  VD: FW[146] = TT_HOP(2, 3, 4);         // thể tích hộp 2x3x4 ra 24
 #define TT_NON(r,h)             (PI_V * (r) * (r) * (h) / 3.0)
+//  VD: FW[148] = TT_NON(1, 3);            // thể tích nón bán kính 1 cao 3 ra 3.1416
 #define DT_CAU(r)               (4 * PI_V * (r) * (r))
-/* canh huyen^2 (chua lay can): can bac 2 cua ket qua nay se ra canh huyen */
+//  VD: FW[150] = DT_CAU(1);               // diện tích mặt cầu bán kính 1 ra 12.566
+/* HUYEN2: cạnh huyền bình phương (chưa lấy căn) */
 #define HUYEN2(a,b)             ((a) * (a) + (b) * (b))
-/* delta phuong trinh bac 2: a*x^2 + b*x + c = 0 */
+//  VD: FW[152] = HUYEN2(3, 4);            // ra 25 (lấy căn sẽ được cạnh huyền = 5)
+/* DELTA phương trình bậc 2: a*x^2 + b*x + c = 0 */
 #define DELTA(a,b,c)            ((b) * (b) - 4 * (a) * (c))
- 
-/* ===== DIEN, CO KHI ===== */
+//  VD: FW[154] = DELTA(1, -3, 2);         // delta = 1 (dương thì có 2 nghiệm)
+
+/* ===== ĐIỆN, CƠ KHÍ (gán vào FW) ===== */
 #define CONG_SUAT_1PHA(U,I,cs)  ((U) * (I) * (cs))
+//  VD: FW[160] = CONG_SUAT_1PHA(220, 5, 0.8);       // 220V, 5A, cos 0.8 ra 880 W
 #define CONG_SUAT_3PHA(U,I,cs)  (SQRT3_V * (U) * (I) * (cs))
+//  VD: FW[162] = CONG_SUAT_3PHA(380, 10, 0.85);     // 380V, 10A, cos 0.85 ra 5595 W
 #define DONG_DIEN(P,U)          ((U) != 0 ? ((P) / (U)) : 0)
+//  VD: FW[164] = DONG_DIEN(1000.0, 220);            // 1000 W ở 220V ra 4.545 A
 #define DIEN_AP(I,R)            ((I) * (R))
+//  VD: FW[166] = DIEN_AP(2, 50);                    // 2A qua 50 ôm ra 100 V
 #define DIEN_TRO(U,I)           ((I) != 0 ? ((U) / (I)) : 0)
+//  VD: FW[168] = DIEN_TRO(24.0, 2);                 // 24V, 2A ra 12 ôm
 #define DIEN_TRO_SONG_SONG(a,b) (((a) + (b)) != 0 ? ((a) * (b) / ((a) + (b))) : 0)
+//  VD: FW[170] = DIEN_TRO_SONG_SONG(100.0, 100.0);  // 2 điện trở 100 ôm song song ra 50
 #define NANG_LUONG(P,t)         ((P) * (t))
+//  VD: FW[172] = NANG_LUONG(2.0, 3.5);              // 2 kW chạy 3.5 giờ ra 7 kWh
 #define MOMEN_XOAN(P,n)         ((n) != 0 ? (9550.0 * (P) / (n)) : 0)
+//  VD: FW[174] = MOMEN_XOAN(7.5, 1450);             // động cơ 7.5 kW, 1450 vòng/phút ra 49.4 N.m
 #define TOC_DO_TRUC(f,p)        ((p) != 0 ? (120.0 * (f) / (p)) : 0)
+//  VD: FW[176] = TOC_DO_TRUC(50, 4);                // 50 Hz, 4 cực ra 1500 vòng/phút
 #define TY_SO_TRUYEN(vao,ra)    ((ra) != 0 ? ((vao) / (ra)) : 0)
+//  VD: FW[178] = TY_SO_TRUYEN(1450.0, 290.0);       // 1450 vào, 290 ra ra 5 (viết .0 để không cắt lẻ)
 #define LUU_LUONG(A,v)          ((A) * (v))
+//  VD: FW[180] = LUU_LUONG(0.01, 2);                // tiết diện 0.01 m2, vận tốc 2 m/s ra 0.02 m3/s
 #define VAN_TOC(s,t)            ((t) != 0 ? ((s) / (t)) : 0)
+//  VD: FW[182] = VAN_TOC(100.0, 4);                 // đi 100 mm trong 4 giây ra 25 mm/s
 #define GIA_TOC(dv,t)           ((t) != 0 ? ((dv) / (t)) : 0)
+//  VD: FW[184] = GIA_TOC(10.0, 2);                  // tăng 10 trong 2 giây ra 5
 #define XUNG2MM(xung,xung_vong,mm_vong) \
 	((xung_vong) != 0 ? ((float)(xung) / (xung_vong) * (mm_vong)) : 0)
+//  VD: FW[186] = XUNG2MM(D[0], 1000, 5);            // encoder 1000 xung/vòng, vít 5mm/vòng, 2500 xung ra 12.5 mm
 #define MM2XUNG(mm,xung_vong,mm_vong) \
 	((mm_vong) != 0 ? ((float)(mm) / (mm_vong) * (xung_vong)) : 0)
- 
-/* ===== BIT / BYTE / WORD TREN SO NGUYEN (khong phai bit M) ===== */
-/* vd: BIT_SET(D[0], 3) bat bit 3 cua D0 */
+//  VD: FW[188] = MM2XUNG(20, 1000, 5);              // 20 mm ra 4000 xung
+
+/* ===== BIT / BYTE / WORD TRÊN SỐ NGUYÊN (không phải bit M) ===== */
+/* Muốn bật/tắt bit M thì viết thẳng M[0] = 1; hoặc M[0] = 0; */
 #define BIT_SET(x,n)        ((x) |= (1 << (n)))
+//  VD: BIT_SET(D[0], 3);                  // bật bit 3 của D0 (0 thành 8). Đứng riêng 1 dòng
 #define BIT_CLR(x,n)        ((x) &= ~(1 << (n)))
+//  VD: BIT_CLR(D[0], 3);                  // tắt bit 3 của D0 (8 thành 0)
 #define BIT_TGL(x,n)        ((x) ^= (1 << (n)))
+//  VD: BIT_TGL(D[0], 3);                  // đảo bit 3 của D0 (đang bật thì tắt, đang tắt thì bật)
 #define BIT_TST(x,n)        (((x) >> (n)) & 1)
+//  VD: M[10] = BIT_TST(D[0], 3);          // đọc bit 3 của D0 ra M10 (D0=8 thì M10=1)
 #define BIT_GHI(x,n,v)      ((v) ? BIT_SET(x,n) : BIT_CLR(x,n))
+//  VD: BIT_GHI(D[0], 3, M[5]);            // bit 3 của D0 = giá trị M5
 #define MASK(n)             ((1 << (n)) - 1)
+//  VD: D[50] = MASK(4);                   // 4 bit 1 liên tiếp ra 15
 #define LAY_BIT_TRUONG(x,vt,len)  (((x) >> (vt)) & MASK(len))
+//  VD: D[51] = LAY_BIT_TRUONG(D[0], 4, 3);     // lấy 3 bit bắt đầu từ bit 4 của D0
 #define LOW_BYTE(x)         ((x) & 0xFF)
+//  VD: D[52] = LOW_BYTE(D[0]);            // byte thấp (0x1234 ra 0x34)
 #define HIGH_BYTE(x)        (((x) >> 8) & 0xFF)
+//  VD: D[53] = HIGH_BYTE(D[0]);           // byte cao (0x1234 ra 0x12)
 #define GHEP_16(hi,lo)      ((((hi) & 0xFF) << 8) | ((lo) & 0xFF))
+//  VD: D[54] = GHEP_16(0x12, 0x34);       // ghép 2 byte thành 0x1234
 #define DOI_BYTE(x)         ((((x) & 0xFF) << 8) | (((x) >> 8) & 0xFF))
+//  VD: D[55] = DOI_BYTE(D[0]);            // đảo byte cao và thấp (0x1234 ra 0x3412)
 #define LOW_WORD(x)         ((x) & 0xFFFF)
+//  VD: D[56] = LOW_WORD(s);               // s là biến long, lấy 16 bit thấp
 #define HIGH_WORD(x)        (((x) >> 16) & 0xFFFF)
+//  VD: D[57] = HIGH_WORD(s);              // s là biến long, lấy 16 bit cao (100000 ra 1)
 #define GHEP_32(hi,lo)      ((((long)(hi)) << 16) | ((lo) & 0xFFFF))
+//  VD: s = GHEP_32(D[57], D[56]);         // ghép 2 word thành số 32 bit (s là biến long)
 #define SWAP(t,a,b)         do { t tmp_ = (a); (a) = (b); (b) = tmp_; } while(0)
+//  VD: SWAP(int, D[0], D[1]);             // đổi chỗ D0 và D1. Đứng riêng 1 dòng
 #define SWAP_XOR(a,b)       do { (a) ^= (b); (b) ^= (a); (a) ^= (b); } while(0)
+//  VD: SWAP_XOR(D[0], D[1]);              // đổi chỗ bằng XOR, không dùng với cùng 1 biến
 #define LA_LUY_THUA_2(x)    (((x) > 0) && (((x) & ((x) - 1)) == 0))
- 
+//  VD: M[11] = LA_LUY_THUA_2(D[0]);       // D0 là 1, 2, 4, 8, 16... thì M11 = 1
+
 /* ===== BCD, GRAY ===== */
 #define BCD2BIN(x)          ((((x) >> 4) & 0xF) * 10 + ((x) & 0xF))
+//  VD: D[60] = BCD2BIN(0x25);             // BCD 0x25 ra số 25
 #define BIN2BCD(x)          ((((x) / 10) << 4) | ((x) % 10))
+//  VD: D[61] = BIN2BCD(25);               // số 25 ra BCD 0x25
 #define BIN2GRAY(x)         ((x) ^ ((x) >> 1))
- 
-/* ===== CHUYEN KIEU ===== */
-#define SANG_FLOAT(x)       ((float)(x))
-#define SANG_INT(x)         ((int)(x))
-#define SANG_LONG(x)        ((long)(x))
-#define BOOL(x)             ((x) ? 1 : 0)
+//  VD: D[62] = BIN2GRAY(5);               // nhị phân 5 ra mã Gray 7
 
-/* ===== khai bao in/out ===== */
-/* ===== tinh toan ===== */
-/* ===== gan lai gia tri x--->d ===== */
+/* ===== CHUYỂN KIỂU ===== */
+#define SANG_FLOAT(x)       ((float)(x))
+//  VD: FW[200] = SANG_FLOAT(D[0]) / 3;    // ép D0 thành số thực rồi chia 3 (10 ra 3.333, không bị cắt lẻ)
+#define SANG_INT(x)         ((int)(x))
+//  VD: D[63] = SANG_INT(FW[200]);         // ép số thực thành int, cắt phần lẻ (3.7 ra 3)
+#define SANG_LONG(x)        ((long)(x))
+//  VD: s = SANG_LONG(D[0]) * 1000;        // ép D0 thành long trước khi nhân để không tràn
+#define BOOL(x)             ((x) ? 1 : 0)
+//  VD: M[12] = BOOL(D[0]);                // D0 khác 0 thì M12 = 1, bằng 0 thì M12 = 0
+
+/* ===== khai báo in/out ===== */
+/* ===== tính toán ===== */
+/* ===== gán lại giá trị x--->d ===== */
 
 }
