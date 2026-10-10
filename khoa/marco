@@ -1,16 +1,4 @@
-/*************************************************************************
- * FunctionBlockName:  DZ
- * Version:            1.0.0
- * Author:             
- * UpdateTime:         2026-10-10 23:32:11
- * Comment:            
-**************************************************************************/
 
-/**
- * @summary 
- * @param W 
- * @param B 
- */
 void DZ(PINT16S W,PBIT B)
 {
 	#define SysRegAddr_HD_D_HM_M   
