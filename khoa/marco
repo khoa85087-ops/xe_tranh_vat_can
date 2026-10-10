@@ -185,6 +185,60 @@ void DZ(PINT16S W,PBIT B)
 #define HZ2RPM(f)           ((f) * 60.0)
 //  VD: FW[112] = HZ2RPM(25);              // 25 Hz ra 1500 vòng/phút
 
+/* ===== TÍNH TRÊN MẢNG (D liên tiếp, bd = địa chỉ D đầu tiên, n = số phần tử) ===== */
+/* Biến đếm i, j, t khai báo ở đầu hàm. Đừng truyền biểu thức có ++ -- vào macro */
+
+/* MANG_TONG: kq phải là biến long (tổng nhiều số 16 bit dễ tràn) */
+#define MANG_TONG(bd,n,kq,i) \
+	do { (kq) = 0; for ((i) = 0; (i) < (n); (i)++) (kq) += D[(bd)+(i)]; } while(0)
+//  VD: MANG_TONG(200, 10, s, i);          // s = D200 + D201 + ... + D209
+
+/* MANG_TB: trung bình, kq là số thực (FW), s là biến long dùng tạm */
+#define MANG_TB(bd,n,s,i,kq) \
+	do { MANG_TONG(bd,n,s,i); (kq) = ((n) > 0) ? ((float)(s) / (n)) : 0; } while(0)
+//  VD: MANG_TB(200, 10, s, i, FW[300]);   // FW300 = trung bình 10 số từ D200
+
+#define MANG_MAX(bd,n,kq,i) \
+	do { (kq) = D[(bd)]; for ((i) = 1; (i) < (n); (i)++) if (D[(bd)+(i)] > (kq)) (kq) = D[(bd)+(i)]; } while(0)
+//  VD: MANG_MAX(200, 10, D[2], i);        // D2 = số lớn nhất trong D200..D209
+
+#define MANG_MIN(bd,n,kq,i) \
+	do { (kq) = D[(bd)]; for ((i) = 1; (i) < (n); (i)++) if (D[(bd)+(i)] < (kq)) (kq) = D[(bd)+(i)]; } while(0)
+//  VD: MANG_MIN(200, 10, D[3], i);        // D3 = số nhỏ nhất
+
+#define MANG_DIEN(bd,n,v,i) \
+	do { for ((i) = 0; (i) < (n); (i)++) D[(bd)+(i)] = (v); } while(0)
+//  VD: MANG_DIEN(200, 10, 0, i);          // xóa D200..D209 về 0
+
+#define MANG_COPY(nguon,dich,n,i) \
+	do { for ((i) = 0; (i) < (n); (i)++) D[(dich)+(i)] = D[(nguon)+(i)]; } while(0)
+//  VD: MANG_COPY(200, 220, 10, i);        // chép D200..D209 sang D220..D229
+
+/* MANG_DAY: đẩy mẫu mới vào cuối, mẫu cũ nhất bị đẩy ra (cửa sổ trượt) */
+#define MANG_DAY(bd,n,moi,i) \
+	do { for ((i) = 0; (i) < (n) - 1; (i)++) D[(bd)+(i)] = D[(bd)+(i)+1]; D[(bd)+(n)-1] = (moi); } while(0)
+//  VD: MANG_DAY(200, 10, D[0], i);        // nhét D0 vào D209, D200 bị bỏ
+
+/* MANG_SORT: sắp xếp tăng dần (nổi bọt), t là biến tạm */
+#define MANG_SORT(bd,n,i,j,t) \
+	do { for ((i) = 0; (i) < (n) - 1; (i)++) for ((j) = 0; (j) < (n) - 1 - (i); (j)++) \
+		if (D[(bd)+(j)] > D[(bd)+(j)+1]) { (t) = D[(bd)+(j)]; D[(bd)+(j)] = D[(bd)+(j)+1]; D[(bd)+(j)+1] = (t); } } while(0)
+//  VD: MANG_SORT(220, 10, i, j, t);       // sắp xếp D220..D229 tăng dần
+
+/* ===== NỘI SUY BẢNG TRA ===== */
+/* Bảng X nằm ở D[bx..], bảng Y nằm ở D[by..], n điểm. X PHẢI tăng dần, không trùng nhau.
+   Ngoài đầu bảng thì lấy Y đầu, ngoài cuối bảng thì lấy Y cuối (tự chặn). kq là số thực */
+#define NOI_SUY(x,bx,by,n,i,kq) \
+	do { \
+		if ((x) <= D[(bx)]) (kq) = D[(by)]; \
+		else if ((x) >= D[(bx)+(n)-1]) (kq) = D[(by)+(n)-1]; \
+		else { \
+			for ((i) = 1; (i) < (n); (i)++) if ((x) <= D[(bx)+(i)]) break; \
+			(kq) = D[(by)+(i)-1] + (float)((x) - D[(bx)+(i)-1]) * (D[(by)+(i)] - D[(by)+(i)-1]) \
+			       / (D[(bx)+(i)] - D[(bx)+(i)-1]); \
+		} \
+	} while(0)
+//  VD: NOI_SUY(D[1], 300, 310, 5, i, FD[400]);   // tra bảng 5 điểm,in d1, out FW400
 /* ===== THỜI GIAN ===== */
 #define MS2S(ms)            ((ms) / 1000.0)
 //  VD: FW[120] = MS2S(1500);              // 1500 ms ra 1.5 giây
