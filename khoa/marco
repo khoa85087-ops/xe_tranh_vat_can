@@ -55,8 +55,6 @@ void DZ(PINT16S W,PBIT B)
 //  vd: D[20] = abs(D[0]);                 // bỏ dấu âm (-5 ra 5)
 #define sign(x)             ((x) > 0 ? 1 : ((x) < 0 ? -1 : 0))
 //  vd: D[21] = sign(D[0]);                // dương ra 1, âm ra -1, bằng 0 ra 0
-/* pow(x,n): x mũ n, n là số nguyên 0..4. Tính bằng long nên pow(300,2) = 90000 không tràn
-   (gán vào biến long hoặc FW). n > 4 thì dùng pown bên dưới (macro này ra 0 khi n > 4) */
 #define pow(x,n) \
 	((n) == 0 ? 1L : (n) == 1 ? (0L + (x)) : (n) == 2 ? (0L + (x)) * (x) : \
 	 (n) == 3 ? (0L + (x)) * (x) * (x) : (n) == 4 ? (0L + (x)) * (x) * (x) * (x) : 0L)
@@ -93,22 +91,16 @@ void DZ(PINT16S W,PBIT B)
 //  vd: FW[46] = round_n(FW[40], 2);       // giữ 2 chữ số lẻ (3.14159 ra 3.14)
 
 /* ===== map đổi giá trị cảm biến*/
-/* nhớ: "x chạy từ (il..ih) đổi thành (ol..oh)", vào trước ra sau.
-   tính bằng float từ đầu nên không tràn 16 bit (vd x - il = 35000 vẫn đúng) */
-/* map_range: không chặn. nếu il = ih thì ra ol (không chia 0) */
+
 #define map_range(x,il,ih,ol,oh) \
 	(((ih) != (il)) ? (((float)(x) - (il)) * ((float)(oh) - (ol)) / ((float)(ih) - (il)) + (ol)) : (ol))
 //  vd: FW[50] = map_range(D[0], 4000, 20000, 0, 100);   // 4-20ma ra 0..100%, vượt khoảng thì ra quá 100 hoặc âm
-/* map_clamp: chặn x trong khoảng vào trước rồi mới map (chỉ tính 1 lần, nhanh hơn).
-   dùng được cả khi map ngược (ol > oh) hoặc khoảng vào ngược (il > ih) */
 #define map_clamp(x,il,ih,ol,oh) \
 	map_range(limit(x, min(il,ih), max(il,ih)), il, ih, ol, oh)
 //  vd: FW[52] = map_clamp(D[0], 4000, 20000, 0, 100);   // như trên nhưng bị chặn trong 0..100 (nên dùng cái này)
-/* map_int: như map_clamp nhưng làm tròn ra số nguyên, gán thẳng vào D */
 #define map_int(x,il,ih,ol,oh) \
 	round(map_clamp(x,il,ih,ol,oh))
 //  vd: D[35] = map_int(D[1], 0, 4095, 0, 1000);         // analog 0..4095 ra số nguyên 0..1000
-/* map_pct: x (lo..hi) -> 0..100, có chặn. lo = hi thì ra 0 (không chia 0) */
 #define map_pct(x,lo,hi)    map_clamp(x, lo, hi, 0, 100)
 //  vd: FW[54] = map_pct(D[0], 4000, 20000);             // đổi nhanh ra phần trăm 0..100
 
