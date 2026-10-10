@@ -314,51 +314,90 @@ void DZ(PINT16S W,PBIT B)
 #define DELTA(a,b,c)            ((float)(b) * (b) - 4.0 * (a) * (c))
 //  VD: FW[154] = DELTA(1, -3, 2);         // delta = 1 (dương thì có 2 nghiệm)
 
-/* ===== ĐIỆN, CƠ KHÍ (gán vào FW) =====
-   Phép chia đã ép float nên số nguyên cũng không bị cắt lẻ, không cần viết .0 */
-#define CONG_SUAT_1PHA(U,I,cs)  ((float)(U) * (I) * (cs))
-//  VD: FW[160] = CONG_SUAT_1PHA(220, 5, 0.8);       // 220V, 5A, cos 0.8 ra 880 W
-#define CONG_SUAT_3PHA(U,I,cs)  (SQRT3_V * (U) * (I) * (cs))
-//  VD: FW[162] = CONG_SUAT_3PHA(380, 10, 0.85);     // 380V, 10A, cos 0.85 ra 5595 W
-#define DONG_DIEN(P,U)          ((U) != 0 ? ((float)(P) / (U)) : 0)
-//  VD: FW[164] = DONG_DIEN(1000, 220);              // 1000 W ở 220V ra 4.545 A
-#define DIEN_AP(I,R)            ((float)(I) * (R))
-//  VD: FW[166] = DIEN_AP(2, 50);                    // 2A qua 50 ôm ra 100 V
-#define DIEN_TRO(U,I)           ((I) != 0 ? ((float)(U) / (I)) : 0)
-//  VD: FW[168] = DIEN_TRO(24, 2);                   // 24V, 2A ra 12 ôm
-#define DIEN_TRO_SONG_SONG(a,b) (((a) + (b)) != 0 ? ((float)(a) * (b) / ((float)(a) + (b))) : 0)
-//  VD: FW[170] = DIEN_TRO_SONG_SONG(100, 100);      // 2 điện trở 100 ôm song song ra 50
-#define NANG_LUONG(P,t)         ((float)(P) * (t))
-//  VD: FW[172] = NANG_LUONG(2, 3.5);                // 2 kW chạy 3.5 giờ ra 7 kWh
-#define MOMEN_XOAN(P,n)         ((n) != 0 ? (9550.0 * (P) / (n)) : 0)
-//  VD: FW[174] = MOMEN_XOAN(7.5, 1450);             // động cơ 7.5 kW, 1450 vòng/phút ra 49.4 N.m
-#define TOC_DO_TRUC(f,p)        ((p) != 0 ? (120.0 * (f) / (p)) : 0)
-//  VD: FW[176] = TOC_DO_TRUC(50, 4);                // 50 Hz, 4 cực ra 1500 vòng/phút
-#define TY_SO_TRUYEN(vao,ra)    ((ra) != 0 ? ((float)(vao) / (ra)) : 0)
-//  VD: FW[178] = TY_SO_TRUYEN(1450, 290);           // 1450 vào, 290 ra ra 5
-#define LUU_LUONG(A,v)          ((float)(A) * (v))
-//  VD: FW[180] = LUU_LUONG(0.01, 2);                // tiết diện 0.01 m2, vận tốc 2 m/s ra 0.02 m3/s
-#define VAN_TOC(s,t)            ((t) != 0 ? ((float)(s) / (t)) : 0)
-//  VD: FW[182] = VAN_TOC(100, 4);                   // đi 100 mm trong 4 giây ra 25 mm/s
-#define GIA_TOC(dv,t)           ((t) != 0 ? ((float)(dv) / (t)) : 0)
-//  VD: FW[184] = GIA_TOC(10, 2);                    // tăng 10 trong 2 giây ra 5
+/* ===== XUNG VÀ ĐẾM XUNG =====
+   Hàm kích bằng xung nên MỖI LẦN HÀM CHẠY = 1 xung. Bộ đếm nằm trong thanh ghi D nên giữ nguyên giữa các lần chạy.
+   Xung nhanh hơn vòng quét (encoder, cảm biến tốc độ cao): dùng bộ đếm tốc độ cao (HSC) của PLC,
+   rồi đưa giá trị đếm vào các macro tính (XUNG2MM, RPM_XUNG...) ở phần dưới.
+   Số đếm 32 bit nằm trên 2 thanh ghi D liên tiếp: lo = thanh ghi thấp, lo+1 = thanh ghi cao
+   (bạn kiểm tra đúng quy ước word thấp/cao của XD trước khi dùng) */
+
+/* --- Đếm 16 bit (đứng riêng 1 dòng, có dấu ;) --- */
+/* DEM_VONG: mỗi xung +1, đủ max thì về 0 (đếm theo lô) */
+#define DEM_VONG(x,max)     do { (x)++; if ((x) >= (max)) (x) = 0; } while(0)
+//  VD: DEM_VONG(D[100], 10);              // mỗi xung +1, đếm đến 10 thì về 0 (lô 10 sản phẩm)
+/* DEM_DEN: đếm đến đích thì bật bit ra và dừng ở đích. Muốn đếm lại thì xóa x về 0 */
+#define DEM_DEN(x,dich,ra)  do { if ((x) < (dich)) (x)++; (ra) = ((x) >= (dich)); } while(0)
+//  VD: DEM_DEN(D[101], 50, M[20]);        // đếm đến 50 thì M20 = 1 và giữ nguyên 50
+/* DEM_LUI: mỗi xung -1, không xuống dưới 0 */
+#define DEM_LUI(x)          do { if ((x) > 0) (x)--; } while(0)
+//  VD: DEM_LUI(D[102]);                   // đếm lùi, dừng ở 0 (vd số sản phẩm còn lại)
+/* DEM_HUONG: huong = 1 đếm lên, huong = 0 đếm xuống (encoder có tín hiệu chiều) */
+#define DEM_HUONG(x,huong)  do { if (huong) (x)++; else (x)--; } while(0)
+//  VD: DEM_HUONG(D[103], M[0]);           // M0 = 1 thì +1, M0 = 0 thì -1
+
+/* --- Đếm 32 bit trên 2 thanh ghi D (đếm quá 32767). lo là SỐ địa chỉ D, không viết D[] --- */
+#define DEM32_CONG(lo,n) \
+	do { long v32_ = GHEP_32(D[(lo)+1], D[(lo)]) + (n); D[(lo)] = LOW_WORD(v32_); D[(lo)+1] = HIGH_WORD(v32_); } while(0)
+//  VD: DEM32_CONG(110, 1);                // D110, D111 là số đếm 32 bit, mỗi xung +1 (n = -1 thì đếm lùi)
+#define DEM32_DOC(lo)       GHEP_32(D[(lo)+1], D[(lo)])
+//  VD: s = DEM32_DOC(110);                // đọc số đếm 32 bit ra biến long s
+#define DEM32_GHI(lo,v) \
+	do { long v32_ = (v); D[(lo)] = LOW_WORD(v32_); D[(lo)+1] = HIGH_WORD(v32_); } while(0)
+//  VD: DEM32_GHI(110, 0);                 // xóa số đếm về 0 (hoặc ghi giá trị bất kỳ, vd đặt vị trí gốc)
+
+/* XUNG_CHENH16: số xung tăng thêm giữa 2 lần đọc bộ đếm 16 bit, đúng cả khi đếm tràn qua 65535 về 0.
+   Kết quả 0..65535 nên gán vào biến long. Bộ đếm 32 bit thì chỉ cần trừ hai biến long */
+#define XUNG_CHENH16(moi,cu)    (((long)(moi) - (cu)) & 0xFFFFL)
+//  VD: s = XUNG_CHENH16(D[0], D[1]);      // D0 = giá trị đếm mới, D1 = giá trị lần đọc trước (cu = 65530, moi = 5 ra 11)
+
+/* --- Đổi xung ra khoảng cách, góc (encoder, động cơ bước, servo) --- */
+#define XUNG_MOI_MM(xung_vong,mm_vong) \
+	((mm_vong) != 0 ? ((float)(xung_vong) / (mm_vong)) : 0)
+//  VD: FW[160] = XUNG_MOI_MM(1000, 5);    // 1000 xung/vòng, vít 5 mm/vòng ra 200 xung cho 1 mm
 /* XUNG2MM, MM2XUNG: nhân trước chia sau để giữ độ chính xác */
 #define XUNG2MM(xung,xung_vong,mm_vong) \
 	((xung_vong) != 0 ? ((float)(xung) * (mm_vong) / (xung_vong)) : 0)
-//  VD: FW[186] = XUNG2MM(D[0], 1000, 5);            // encoder 1000 xung/vòng, vít 5mm/vòng, 2500 xung ra 12.5 mm
+//  VD: FW[162] = XUNG2MM(D[0], 1000, 5);  // encoder 1000 xung/vòng, vít 5mm/vòng, 2500 xung ra 12.5 mm
 #define MM2XUNG(mm,xung_vong,mm_vong) \
 	((mm_vong) != 0 ? ((float)(mm) * (xung_vong) / (mm_vong)) : 0)
-//  VD: FW[188] = MM2XUNG(20, 1000, 5);              // 20 mm ra 4000 xung
+//  VD: FW[164] = MM2XUNG(20, 1000, 5);    // 20 mm ra 4000 xung (số xung cần phát để đi 20 mm)
+#define XUNG2VONG(xung,xung_vong) \
+	((xung_vong) != 0 ? ((float)(xung) / (xung_vong)) : 0)
+//  VD: FW[166] = XUNG2VONG(D[0], 1000);   // 2500 xung, 1000 xung/vòng ra 2.5 vòng
+#define XUNG2DO(xung,xung_vong) \
+	((xung_vong) != 0 ? ((float)(xung) * 360.0 / (xung_vong)) : 0)
+//  VD: FW[168] = XUNG2DO(250, 1000);      // 250 xung, 1000 xung/vòng ra 90 độ
+#define DO2XUNG(goc,xung_vong)  ((float)(goc) * (xung_vong) / 360.0)
+//  VD: FW[170] = DO2XUNG(90, 1000);       // quay 90 độ cần 250 xung
+
+/* --- Tần số, tốc độ từ số xung đếm được trong khoảng thời gian ms --- */
+#define TAN_SO_XUNG(xung,ms) \
+	((ms) != 0 ? ((float)(xung) * 1000.0 / (ms)) : 0)
+//  VD: FW[172] = TAN_SO_XUNG(D[2], 500);  // đếm được 100 xung trong 500 ms ra 200 Hz
+#define RPM_XUNG(xung,xung_vong,ms) \
+	((((xung_vong) != 0) && ((ms) != 0)) ? ((float)(xung) * 60000.0 / ((float)(xung_vong) * (ms))) : 0)
+//  VD: FW[174] = RPM_XUNG(500, 1000, 100);     // 500 xung trong 100 ms, 1000 xung/vòng ra 300 vòng/phút
+#define TOC_DO_MM_S(xung,xung_vong,mm_vong,ms) \
+	((((xung_vong) != 0) && ((ms) != 0)) ? ((float)(xung) * (mm_vong) * 1000.0 / ((float)(xung_vong) * (ms))) : 0)
+//  VD: FW[176] = TOC_DO_MM_S(2500, 1000, 5, 1000);   // 2500 xung trong 1 giây, vít 5mm/vòng ra 12.5 mm/s
+
+/* --- Tốc độ cần chạy đổi ra tần số phát xung (xuất xung cho servo, động cơ bước) --- */
+#define MMS2HZ(v,xung_vong,mm_vong) \
+	((mm_vong) != 0 ? ((float)(v) * (xung_vong) / (mm_vong)) : 0)
+//  VD: FW[178] = MMS2HZ(25, 1000, 5);     // muốn chạy 25 mm/s cần phát 5000 Hz
+#define HZ2MMS(f,xung_vong,mm_vong) \
+	((xung_vong) != 0 ? ((float)(f) * (mm_vong) / (xung_vong)) : 0)
+//  VD: FW[180] = HZ2MMS(5000, 1000, 5);   // phát 5000 Hz ra 25 mm/s
 
 /* ===== BIT / BYTE / WORD TRÊN SỐ NGUYÊN (không phải bit M) =====
    Dùng 1L (long) nên thao tác bit 15 không bị lỗi trên int 16 bit */
 /* Muốn bật/tắt bit M thì viết thẳng M[0] = 1; hoặc M[0] = 0; */
-#define BIT_SET(x,n)        ((x) |= (1L << (n)))
-//  VD: BIT_SET(D[0], 3);                  // bật bit 3 của D0 (0 thành 8). Đứng riêng 1 dòng
-#define BIT_CLR(x,n)        ((x) &= ~(1L << (n)))
-//  VD: BIT_CLR(D[0], 3);                  // tắt bit 3 của D0 (8 thành 0)
-#define BIT_TGL(x,n)        ((x) ^= (1L << (n)))
-//  VD: BIT_TGL(D[0], 3);                  // đảo bit 3 của D0 (đang bật thì tắt, đang tắt thì bật)
+#define set_bit(x,n)        ((x) |= (1L << (n)))
+//  VD: set_bit(D[0], 3);                  // bật bit 3 của D0 (0 thành 8). Đứng riêng 1 dòng
+#define clr_bit(x,n)        ((x) &= ~(1L << (n)))
+//  VD: clr_bit(D[0], 3);                  // tắt bit 3 của D0 (8 thành 0)
+#define nbit(x,n)        ((x) ^= (1L << (n)))
+//  VD: nbit(D[0], 3);                  // đảo bit 3 của D0 (đang bật thì tắt, đang tắt thì bật)
 #define BIT_TST(x,n)        (((x) >> (n)) & 1)
 //  VD: M[10] = BIT_TST(D[0], 3);          // đọc bit 3 của D0 ra M10 (D0=8 thì M10=1)
 #define BIT_GHI(x,n,v)      ((v) ? BIT_SET(x,n) : BIT_CLR(x,n))
@@ -385,7 +424,7 @@ void DZ(PINT16S W,PBIT B)
 //  VD: SWAP(INT16S, D[0], D[1]);          // đổi chỗ D0 và D1 (t là kiểu của biến). Đứng riêng 1 dòng
 #define SWAP_XOR(a,b)       do { (a) ^= (b); (b) ^= (a); (a) ^= (b); } while(0)
 //  VD: SWAP_XOR(D[0], D[1]);              // đổi chỗ bằng XOR, không dùng với cùng 1 biến
-#define LA_LUY_THUA_2(x)    (((x) > 0) && (((x) & ((x) - 1)) == 0))
+#define ispow2(x)    (((x) > 0) && (((x) & ((x) - 1)) == 0))
 //  VD: M[11] = LA_LUY_THUA_2(D[0]);       // D0 là 1, 2, 4, 8, 16... thì M11 = 1
 
 /* ===== BCD, GRAY ===== */
@@ -400,7 +439,15 @@ void DZ(PINT16S W,PBIT B)
 #define BIN2GRAY(x)         ((x) ^ ((x) >> 1))
 //  VD: D[62] = BIN2GRAY(5);               // nhị phân 5 ra mã Gray 7
 
-
+/* ===== CHUYỂN KIỂU ===== */
+#define float(x)       ((float)(x))
+//  VD: FW[200] = SANG_FLOAT(D[0]) / 3;    // ép D0 thành số thực rồi chia 3 (10 ra 3.333, không bị cắt lẻ)
+#define int(x)         ((int)(x))
+//  VD: D[63] = SANG_INT(FW[200]);         // ép số thực thành int, cắt phần lẻ (3.7 ra 3)
+#define long(x)        ((long)(x))
+//  VD: s = SANG_LONG(D[0]) * 1000;        // ép D0 thành long trước khi nhân để không tràn
+#define bool(x)        ((x) ? 1 : 0)
+//  VD: M[12] = SANG_BOOL(D[0]);           // D0 khác 0 thì M12 = 1, bằng 0 thì M12 = 0
 
 /* ===== khai báo in/out ===== */
 
