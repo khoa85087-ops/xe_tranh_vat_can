@@ -149,10 +149,7 @@ void DZ(PINT16S W,PBIT B)
 #define hz2rpm(f)           ((f) * 60.0)
 //  vd: FW[112] = hz2rpm(25);              // 25 hz ra 1500 vòng/phút
 
-/* ===== mảng (D liên tiếp, tên arr_ như sum, max, sorted của Python) =====
-   bd = địa chỉ D đầu tiên (viết số, vd 200), n = số phần tử (hằng số hoặc biến đơn giản)
-   i, j, t = biến tạm khai báo ở đầu hàm (INT16S, phải có dấu). s = biến long.
-   các macro này là lệnh, đứng riêng 1 dòng */
+
 
 /* arr_sum: kq phải là biến long (tổng nhiều số 16 bit dễ tràn) */
 #define arr_sum(bd,n,kq,i) \
@@ -182,9 +179,7 @@ void DZ(PINT16S W,PBIT B)
 	do { for ((i) = 0; (i) < (n); (i)++) D[(dich)+(i)] = D[(nguon)+(i)]; } while(0)
 //  vd: arr_copy(200, 220, 10, i);         // chép D200..D209 sang D220..D229
 
-/* arr_ring: bộ đệm vòng, mỗi lần chỉ ghi 1 ô (nhanh hơn dịch cả mảng n lần).
-   idx là 1 thanh ghi D riêng giữ vị trí ghi hiện tại (tự về 0 khi hết vòng hoặc khi giá trị sai).
-   thứ tự mẫu trong mảng bị xoay vòng nên chỉ dùng cho tổng, trung bình, min, max, sắp xếp */
+
 #define arr_ring(bd,n,idx,moi) \
 	do { \
 		if (D[(idx)] < 0 || D[(idx)] >= (n)) D[(idx)] = 0; \
@@ -193,14 +188,11 @@ void DZ(PINT16S W,PBIT B)
 	} while(0)
 //  vd: arr_ring(200, 10, D[210], D[0]);   // nhét D0 vào vòng 10 mẫu D200..D209, D210 là con trỏ ghi
 
-/* arr_push: như append rồi pop(0): đẩy mẫu mới vào cuối, mẫu cũ nhất bị đẩy ra, giữ đúng thứ tự thời gian
-   (chậm hơn arr_ring, chỉ dùng khi cần thứ tự, vd vẽ đồ thị) */
 #define arr_push(bd,n,moi,i) \
 	do { for ((i) = 0; (i) < (n) - 1; (i)++) D[(bd)+(i)] = D[(bd)+(i)+1]; D[(bd)+(n)-1] = (moi); } while(0)
 //  vd: arr_push(200, 10, D[0], i);        // nhét D0 vào D209, D200 bị bỏ
 
-/* arr_sort: sắp xếp tăng dần như sorted() của Python, bằng insertion sort.
-   i, j phải có dấu (INT16S), t là biến tạm */
+
 #define arr_sort(bd,n,i,j,t) \
 	do { \
 		for ((i) = 1; (i) < (n); (i)++) { \
@@ -211,10 +203,7 @@ void DZ(PINT16S W,PBIT B)
 	} while(0)
 //  vd: arr_sort(220, 10, i, j, t);        // sắp xếp D220..D229 tăng dần
 
-/* ===== INTERP (NỘI SUY BẢNG TRA, NHƯ NUMPY.INTERP) =====
-   bảng x nằm ở D[bx..], bảng y nằm ở D[by..], n điểm (n >= 2).
-   x phải tăng dần, không trùng nhau. y lưu số nguyên (muốn có lẻ thì nhân 10 hoặc 100 khi nạp bảng).
-   ngoài đầu bảng lấy y đầu, ngoài cuối bảng lấy y cuối (tự chặn). kq là số thực (FW) */
+/* ===== INTERP (NỘI SUY BẢNG TRA, NHƯ NUMPY.INTERP) ===== */
 #define interp(x,bx,by,n,i,kq) \
 	do { \
 		if ((x) <= D[(bx)]) (kq) = D[(by)]; \
