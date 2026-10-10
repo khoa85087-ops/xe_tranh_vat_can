@@ -180,14 +180,6 @@ void DZ(PINT16S W,PBIT B)
 //  vd: arr_copy(200, 220, 10, i);         // chép D200..D209 sang D220..D229
 
 
-#define arr_ring(bd,n,idx,moi) \
-	do { \
-		if (D[(idx)] < 0 || D[(idx)] >= (n)) D[(idx)] = 0; \
-		D[(bd) + D[(idx)]] = (moi); \
-		D[(idx)]++; \
-	} while(0)
-//  vd: arr_ring(200, 10, D[210], D[0]);   // nhét D0 vào vòng 10 mẫu D200..D209, D210 là con trỏ ghi
-
 #define arr_push(bd,n,moi,i) \
 	do { for ((i) = 0; (i) < (n) - 1; (i)++) D[(bd)+(i)] = D[(bd)+(i)+1]; D[(bd)+(n)-1] = (moi); } while(0)
 //  vd: arr_push(200, 10, D[0], i);        // nhét D0 vào D209, D200 bị bỏ
