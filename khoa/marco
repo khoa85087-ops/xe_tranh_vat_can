@@ -1,3 +1,16 @@
+/*************************************************************************
+ * FunctionBlockName:  DZ
+ * Version:            1.0.0
+ * Author:             
+ * UpdateTime:         2026-10-10 23:32:11
+ * Comment:            
+**************************************************************************/
+
+/**
+ * @summary 
+ * @param W 
+ * @param B 
+ */
 void DZ(PINT16S W,PBIT B)
 {
 	#define SysRegAddr_HD_D_HM_M   
@@ -304,5 +317,13 @@ void DZ(PINT16S W,PBIT B)
 //  vd: s = long(D[0]) * 1000;             // ép D0 thành long trước khi nhân để không tràn
 #define bool(x)        ((x) ? 1 : 0)
 //  vd: M[12] = bool(D[0]);                // D0 khác 0 thì M12 = 1, bằng 0 thì M12 = 0
+
+/* ===== khai báo in/out ===== */
+
+
+/* ===== tính toán ===== */
+
+
+/* ===== gán lại giá trị x--->d ===== */
 
 }
