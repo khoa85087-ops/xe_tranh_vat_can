@@ -19,6 +19,10 @@ void DZ(PINT16S W,PBIT B)
 	#define M B
     #define FD FW
 
+/* QUY ƯỚC: đầu vào là D (16 bit), biến long hay FW (float) đều được, macro tự đổi sang float để tính.
+   kết quả trả về là số thực, gán vào FW là đủ chính xác. gán vào D thì phần lẻ bị cắt.
+   ngoại lệ: mod, floordiv, sec2hh/mm/ss cần số nguyên nên đổi đầu vào về long (số thực bị cắt phần lẻ) */
+
 /* ===== hằng số (tên như math.h) ===== */
 #define M_PI      3.14159265
 #define pi        M_PI
@@ -29,55 +33,55 @@ void DZ(PINT16S W,PBIT B)
 //  vd: FW[34] = 3.1416 * rad2deg;         // 3.1416 rad ra 180 độ
 
 /* ===== so sánh, giới hạn (max, min, limit như Python / numpy) ===== */
-#define max(a,b)            ((a) > (b) ? (a) : (b))
-//  vd: D[10] = max(D[0], D[1]);           // lấy số lớn hơn của D0 và D1
-#define min(a,b)            ((a) < (b) ? (a) : (b))
-//  vd: D[11] = min(D[0], D[1]);           // lấy số nhỏ hơn của D0 và D1
+#define max(a,b)            ((a) > (b) ? (float)(a) : (float)(b))
+//  vd: FW[10] = max(D[0], D[1]);          // lấy số lớn hơn của D0 và D1
+#define min(a,b)            ((a) < (b) ? (float)(a) : (float)(b))
+//  vd: FW[11] = min(D[0], D[1]);          // lấy số nhỏ hơn của D0 và D1
 #define max3(a,b,c)         max(max(a,b),c)
-//  vd: D[12] = max3(D[0], D[1], D[2]);    // lớn nhất trong 3 số
+//  vd: FW[12] = max3(D[0], D[1], D[2]);   // lớn nhất trong 3 số
 #define min3(a,b,c)         min(min(a,b),c)
-//  vd: D[13] = min3(D[0], D[1], D[2]);    // nhỏ nhất trong 3 số
+//  vd: FW[13] = min3(D[0], D[1], D[2]);   // nhỏ nhất trong 3 số
 #define max4(a,b,c,d)       max(max(a,b),max(c,d))
-//  vd: D[14] = max4(D[0], D[1], D[2], D[3]);   // lớn nhất trong 4 số
+//  vd: FW[14] = max4(D[0], D[1], D[2], D[3]);   // lớn nhất trong 4 số
 #define min4(a,b,c,d)       min(min(a,b),min(c,d))
-//  vd: D[15] = min4(D[0], D[1], D[2], D[3]);   // nhỏ nhất trong 4 số
+//  vd: FW[15] = min4(D[0], D[1], D[2], D[3]);   // nhỏ nhất trong 4 số
 #define median3(a,b,c)      max(min(a,b),min(max(a,b),c))
-//  vd: D[16] = median3(D[0], D[1], D[2]); // số ở giữa (5,9,7 ra 7), lọc nhiễu xung
-#define limit(x,lo,hi)      ((x) < (lo) ? (lo) : ((x) > (hi) ? (hi) : (x)))
-//  vd: D[17] = limit(D[0], 0, 100);       // D0=150 ra 100, D0=-5 ra 0 (cần lo <= hi)
+//  vd: FW[16] = median3(D[0], D[1], D[2]); // số ở giữa (5,9,7 ra 7), lọc nhiễu xung
+#define limit(x,lo,hi)      ((x) < (lo) ? (float)(lo) : ((x) > (hi) ? (float)(hi) : (float)(x)))
+//  vd: FW[17] = limit(D[0], 0, 100);      // D0=150 ra 100, D0=-5 ra 0 (cần lo <= hi)
 #define in_range(x,lo,hi)   ((x) >= (lo) && (x) <= (hi))
 //  vd: M[0] = in_range(D[0], 10, 50);     // D0 nằm trong 10..50 thì M0 = 1 (như 10 <= x <= 50 của Python)
 #define out_range(x,lo,hi)  ((x) < (lo) || (x) > (hi))
 //  vd: M[1] = out_range(D[0], 10, 50);    // D0 nằm ngoài 10..50 thì M1 = 1
 
 /* ===== số học cơ bản ===== */
-#define abs(x)              ((x) < 0 ? -(x) : (x))
-//  vd: D[20] = abs(D[0]);                 // bỏ dấu âm (-5 ra 5)
+#define abs(x)              ((x) < 0 ? -(float)(x) : (float)(x))
+//  vd: FW[20] = abs(D[0]);                // bỏ dấu âm (-5 ra 5)
 #define sign(x)             ((x) > 0 ? 1 : ((x) < 0 ? -1 : 0))
 //  vd: D[21] = sign(D[0]);                // dương ra 1, âm ra -1, bằng 0 ra 0
 #define pow(x,n) \
-	((n) == 0 ? 1L : (n) == 1 ? (0L + (x)) : (n) == 2 ? (0L + (x)) * (x) : \
-	 (n) == 3 ? (0L + (x)) * (x) * (x) : (n) == 4 ? (0L + (x)) * (x) * (x) * (x) : 0L)
+	((n) == 0 ? 1.0 : (n) == 1 ? (float)(x) : (n) == 2 ? (float)(x) * (x) : \
+	 (n) == 3 ? (float)(x) * (x) * (x) : (n) == 4 ? (float)(x) * (x) * (x) * (x) : 0.0)
 //  vd: FW[200] = pow(D[0], 2);            // bình phương (4 ra 16)
 //  vd: FW[202] = pow(D[0], 3);            // lập phương (3 ra 27)
 /* pown: x mũ n với n bất kỳ >= 0. Là LỆNH (có vòng lặp), đứng riêng 1 dòng.
-   kq nên là FW hoặc biến long, i là biến INT16S tạm */
+   kq phải là FW (số thực), i là biến INT16S tạm */
 #define pown(kq,x,n,i) \
 	do { (kq) = 1; for ((i) = 0; (i) < (n); (i)++) (kq) *= (x); } while(0)
 //  vd: pown(FW[204], 2.0, 10, i);         // 2 mũ 10 ra 1024
 /* floordiv: chia lấy phần nguyên làm tròn xuống, giống a // b của Python: -17 // 5 ra -4. b = 0 thì ra 0.
    (Phép / của C cắt về 0: -17 / 5 ra -3, muốn như C thì viết thẳng a / b) */
-#define floordiv(a,b)       ((b) != 0 ? (((long)(a) - mod(a,b)) / (b)) : 0)
+#define floordiv(a,b)       ((long)(b) != 0 ? (((long)(a) - mod(a,b)) / (long)(b)) : 0)
 //  vd: D[22] = floordiv(D[0], 5);         // 17 ra 3, -17 ra -4
 /* mod: chia lấy dư, giống a % b của Python: -17 % 5 ra 3, kết quả cùng dấu với b. b = 0 thì ra 0.
    (Phép % của C cho -17 % 5 ra -2, muốn như C thì viết thẳng a % b) */
-#define mod(a,b)            ((b) != 0 ? ((((long)(a) % (b)) + (b)) % (b)) : 0)
+#define mod(a,b)            ((long)(b) != 0 ? ((((long)(a) % (long)(b)) + (long)(b)) % (long)(b)) : 0)
 //  vd: D[23] = mod(D[0], 5);              // 17 ra 2, -17 ra 3 (dùng để quay vòng chỉ số, góc)
 
 /* ===== làm tròn, cắt (tên như math.h) ===== */
 #define trunc(x)            ((long)(x))
 //  vd: D[30] = trunc(FW[40]);             // bỏ phần lẻ (3.7 ra 3, -3.7 ra -3)
-#define frac(x)             ((x) - (long)(x))
+#define frac(x)             ((float)(x) - (long)(x))
 //  vd: FW[44] = frac(FW[40]);             // chỉ lấy phần lẻ (3.7 ra 0.7)
 /* round: .5 làm tròn ra xa số 0 (giống round() của C: 2.5 ra 3, -3.5 ra -4).
    Python thì làm tròn .5 về số chẵn (round(2.5) = 2), khác chỗ này */
@@ -87,7 +91,7 @@ void DZ(PINT16S W,PBIT B)
 //  vd: D[32] = floor(FW[40]);             // làm tròn xuống (3.7 ra 3, -3.2 ra -4)
 #define ceil(x)             ((long)(x) + ((x) > (long)(x)))
 //  vd: D[33] = ceil(FW[40]);              // làm tròn lên (3.2 ra 4, -3.7 ra -3)
-#define round_n(x,k)        (round((x) * pow(10,k)) / (float)pow(10,k))
+#define round_n(x,k)        (round((x) * pow(10,k)) / pow(10,k))
 //  vd: FW[46] = round_n(FW[40], 2);       // giữ 2 chữ số lẻ (3.14159 ra 3.14)
 
 /* ===== map đổi giá trị cảm biến*/
@@ -163,18 +167,18 @@ void DZ(PINT16S W,PBIT B)
 
 /* ===== mảng (D liên tiếp, tên arr_ như sum, max, sorted của Python) =====
    bd = địa chỉ D đầu tiên (viết số, vd 200), n = số phần tử (hằng số hoặc biến đơn giản)
-   i, j, t = biến tạm khai báo ở đầu hàm (INT16S, phải có dấu). s = biến long.
-   các macro này là lệnh, đứng riêng 1 dòng */
+   i, j, t = biến tạm khai báo ở đầu hàm (INT16S, phải có dấu). s = biến long hoặc FW.
+   các phần tử mảng là D nên luôn 16 bit. các macro này là lệnh, đứng riêng 1 dòng */
 
-/* arr_sum: kq phải là biến long (tổng nhiều số 16 bit dễ tràn) */
+/* arr_sum: kq là FW hoặc biến long (tổng nhiều số 16 bit dễ tràn nếu gán vào D) */
 #define arr_sum(bd,n,kq,i) \
 	do { (kq) = 0; for ((i) = 0; (i) < (n); (i)++) (kq) += D[(bd)+(i)]; } while(0)
-//  vd: arr_sum(200, 10, s, i);            // s = D200 + D201 + ... + D209
+//  vd: arr_sum(200, 10, FW[302], i);      // FW302 = D200 + D201 + ... + D209
 
-/* arr_mean: trung bình, kq là số thực (FW), s là biến long dùng tạm. n <= 0 thì ra 0 */
+/* arr_mean: trung bình, kq là FW, s là FW hoặc biến long dùng tạm. n <= 0 thì ra 0 */
 #define arr_mean(bd,n,s,i,kq) \
-	do { arr_sum(bd,n,s,i); (kq) = ((n) > 0) ? ((float)(s) / (n)) : 0; } while(0)
-//  vd: arr_mean(200, 10, s, i, FW[300]);  // FW300 = trung bình 10 số từ D200
+	do { arr_sum(bd,n,s,i); (kq) = ((n) > 0) ? ((float)(s) / (float)(n)) : 0; } while(0)
+//  vd: arr_mean(200, 10, FW[304], i, FW[300]);  // FW300 = trung bình 10 số từ D200 (FW304 dùng tạm)
 
 #define arr_max(bd,n,kq,i) \
 	do { (kq) = D[(bd)]; for ((i) = 1; (i) < (n); (i)++) if (D[(bd)+(i)] > (kq)) (kq) = D[(bd)+(i)]; } while(0)
@@ -239,29 +243,29 @@ void DZ(PINT16S W,PBIT B)
 	} while(0)
 //  vd: interp(D[1], 300, 310, 5, i, FW[400]);   // tra bảng 5 điểm (x: D300..D304, y: D310..D314), vào D1, ra FW400
 
-/* ===== thời gian ===== */
+/* ===== thời gian (kết quả là số thực, gán vào FW hoặc biến long) ===== */
 #define ms2s(ms)            ((ms) * 0.001)
 //  vd: FW[120] = ms2s(1500);              // 1500 ms ra 1.5 giây
-#define s2ms(s)             ((s) * 1000L)
-//  vd: s = s2ms(5);                       // 5 giây ra 5000 ms (s là biến long)
+#define s2ms(s)             ((s) * 1000.0)
+//  vd: FW[122] = s2ms(5);                 // 5 giây ra 5000 ms
 #define s2min(s)            ((s) * 0.01666667)
-//  vd: FW[122] = s2min(90);               // 90 giây ra 1.5 phút
-#define min2s(p)            ((p) * 60L)
+//  vd: FW[124] = s2min(90);               // 90 giây ra 1.5 phút
+#define min2s(p)            ((p) * 60.0)
 //  vd: D[41] = min2s(3);                  // 3 phút ra 180 giây
 #define min2h(p)            ((p) * 0.01666667)
-//  vd: FW[124] = min2h(90);               // 90 phút ra 1.5 giờ
-#define h2min(h)            ((h) * 60L)
+//  vd: FW[126] = min2h(90);               // 90 phút ra 1.5 giờ
+#define h2min(h)            ((h) * 60.0)
 //  vd: D[42] = h2min(2);                  // 2 giờ ra 120 phút
-#define h2s(h)              ((h) * 3600L)
-//  vd: s = h2s(10);                       // 10 giờ ra 36000 giây (s là biến long, gán D sẽ tràn)
-#define day2h(d)            ((d) * 24L)
+#define h2s(h)              ((h) * 3600.0)
+//  vd: FW[128] = h2s(10);                 // 10 giờ ra 36000 giây (gán vào D sẽ tràn)
+#define day2h(d)            ((d) * 24.0)
 //  vd: D[44] = day2h(2);                  // 2 ngày ra 48 giờ
-/* tách số giây ra giờ : phút : giây để hiển thị hmi (như divmod). giây vào có thể là long */
-#define sec2hh(s)           ((s) / 3600L)
+/* tách số giây ra giờ : phút : giây để hiển thị hmi (như divmod). giây vào đổi về long nên phần lẻ bị cắt */
+#define sec2hh(s)           ((long)(s) / 3600L)
 //  vd: D[45] = sec2hh(3725);              // 3725 giây ra 1 giờ
-#define sec2mm(s)           (((s) % 3600L) / 60)
+#define sec2mm(s)           (((long)(s) % 3600L) / 60)
 //  vd: D[46] = sec2mm(3725);              // 3725 giây ra 2 phút
-#define sec2ss(s)           ((s) % 60L)
+#define sec2ss(s)           ((long)(s) % 60L)
 //  vd: D[47] = sec2ss(3725);              // 3725 giây ra 5 giây (tức 1:02:05)
 
 
