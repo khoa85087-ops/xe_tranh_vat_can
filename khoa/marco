@@ -272,41 +272,7 @@ void DZ(PINT16S W,PBIT B)
 #define sec2ss(s)           ((s) % 60L)
 //  vd: D[47] = sec2ss(3725);              // 3725 giây ra 5 giây (tức 1:02:05)
 
-/* ===== bit / byte / word trên số nguyên (tên như bitSet, bitRead của Arduino) =====
-   dùng 1L (long) nên thao tác bit 15 không bị lỗi trên int 16 bit */
-/* muốn bật/tắt bit M thì viết thẳng M[0] = 1; hoặc M[0] = 0; */
-#define bit_set(x,n)        ((x) |= (1L << (n)))
-//  vd: bit_set(D[0], 3);                  // bật bit 3 của D0 (0 thành 8). đứng riêng 1 dòng
-#define bit_clear(x,n)      ((x) &= ~(1L << (n)))
-//  vd: bit_clear(D[0], 3);                // tắt bit 3 của D0 (8 thành 0)
-#define bit_toggle(x,n)     ((x) ^= (1L << (n)))
-//  vd: bit_toggle(D[0], 3);               // đảo bit 3 của D0 (đang bật thì tắt, đang tắt thì bật)
-#define bit_read(x,n)       (((x) >> (n)) & 1)
-//  vd: M[10] = bit_read(D[0], 3);         // đọc bit 3 của D0 ra M10 (D0=8 thì M10=1)
-#define bit_write(x,n,v)    ((v) ? bit_set(x,n) : bit_clear(x,n))
-//  vd: bit_write(D[0], 3, M[5]);          // bit 3 của D0 = giá trị M5
-#define bitmask(n)          ((1L << (n)) - 1)
-//  vd: D[50] = bitmask(4);                // 4 bit 1 liên tiếp ra 15
-#define bitfield(x,pos,len) (((x) >> (pos)) & bitmask(len))
-//  vd: D[51] = bitfield(D[0], 4, 3);      // lấy 3 bit bắt đầu từ bit 4 của D0
-#define low_byte(x)         ((x) & 0xFF)
-//  vd: D[52] = low_byte(D[0]);            // byte thấp (0x1234 ra 0x34)
-#define high_byte(x)        (((x) >> 8) & 0xFF)
-//  vd: D[53] = high_byte(D[0]);           // byte cao (0x1234 ra 0x12)
-#define make16(hi,lo)       ((((hi) & 0xFF) << 8) | ((lo) & 0xFF))
-//  vd: D[54] = make16(0x12, 0x34);        // ghép 2 byte thành 0x1234
-#define swap_bytes(x)       ((((x) & 0xFF) << 8) | (((x) >> 8) & 0xFF))
-//  vd: D[55] = swap_bytes(D[0]);          // đảo byte cao và thấp (0x1234 ra 0x3412)
-#define low_word(x)         ((x) & 0xFFFFL)
-//  vd: D[56] = low_word(s);               // s là biến long, lấy 16 bit thấp
-#define high_word(x)        (((x) >> 16) & 0xFFFFL)
-//  vd: D[57] = high_word(s);              // s là biến long, lấy 16 bit cao (100000 ra 1)
-#define make32(hi,lo)       ((((long)(hi)) << 16) | ((lo) & 0xFFFFL))
-//  vd: s = make32(D[57], D[56]);          // ghép 2 word thành số 32 bit (s là biến long)
-#define swap(t,a,b)         do { t tmp_ = (a); (a) = (b); (b) = tmp_; } while(0)
-//  vd: swap(INT16S, D[0], D[1]);          // đổi chỗ D0 và D1 (t là kiểu của biến). đứng riêng 1 dòng
-#define is_pow2(x)          (((x) > 0) && (((x) & ((x) - 1)) == 0))
-//  vd: M[11] = is_pow2(D[0]);             // D0 là 1, 2, 4, 8, 16... thì M11 = 1
+
 
 /* ===== chuyển kiểu (như float(), int(), bool() của Python) ===== */
 #define float(x)       ((float)(x))
