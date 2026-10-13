@@ -4,7 +4,6 @@ void SS_READ(PINT16S W, PBIT B)
     #define SysRegAddr_HD_D_HM_M
 
     #define D W
-    #define M B
     #define FD FW
 
     /* ===== hằng số ===== */
@@ -212,11 +211,9 @@ void SS_READ(PINT16S W, PBIT B)
     //  vd: D[140] = float_to_int(FW[132], 2); // 12.34 thành 1234 để lưu dạng số nguyên
 
 
-    //khai bao
-   
-    //tinh toan 
-   
-    //map ve d hoac m 
-    
-    
+// KHAI BAO 
+
+//TINH TOAN 
+
+// GAN LAI D HOAC B 
 }
