@@ -153,16 +153,27 @@ void SS_READ(PINT16S W, PBIT B)
     #define hz2rpm(f)           ((f) * 60.0)
 
 
-    /* ===== lọc nhiễu: trung bình trượt 5 mẫu ===== */
-    #define filter_avg5(x,bd,i,out) \
-        do { \
+  /* ===== lọc nhiễu trung bình trượt tối đa 5 mẫu ===== */
+
+#define filter_avg5(x,bd,i,out) \
+    do { \
+        if (D[(bd)+5] < 5) { \
+            D[(bd)+D[(bd)+5]] = (x); \
+            D[(bd)+5]++; \
+        } else { \
             for ((i) = 0; (i) < 4; (i)++) \
                 D[(bd)+(i)] = D[(bd)+(i)+1]; \
             D[(bd)+4] = (x); \
-            (out) = ((long)D[(bd)] + D[(bd)+1] + D[(bd)+2] + \
-                     D[(bd)+3] + D[(bd)+4]) / 5.0; \
-        } while(0)
-    //  vd: filter_avg5(D[0], 200, i, FW[300]); // lưu 5 mẫu ở D200..D204, trung bình ra FW300
+        } \
+        (out) = 0; \
+        for ((i) = 0; (i) < D[(bd)+5]; (i)++) \
+            (out) += D[(bd)+(i)]; \
+        (out) /= (float)D[(bd)+5]; \
+    } while(0)
+
+//  vd: filter_avg5(D[2], 200, i, FW[103]);
+// doc tu d2 
+//  FW103: kết quả trung bình cộng
 
 
     /* ===== nội suy bảng tra ===== */
