@@ -213,15 +213,10 @@ void SS_READ(PINT16S W, PBIT B)
 
 
     //khai bao
-    D[120] = 0;
-    D[121] = 4096;
-    D[122] = 0;
-    D[123] = 100;
+   
     //tinh toan 
-    FW[132] = map_clamp(D[0], D[120], D[121], D[122], D[123]);
-    //  ADC sang thang 0..100, lưu giá trị có phần thập phân vào FW132
+   
     //map ve d hoac m 
-    D[140] = float_to_int(FW[132], 2);
-    //  lưu FW132 nhân 100 vào D140 để giữ 2 chữ số thập phân dưới dạng số nguyên
+    
     
 }
