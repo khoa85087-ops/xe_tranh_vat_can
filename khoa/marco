@@ -1,4 +1,7 @@
-#define SysRegAddr_HD_D_HM_M
+
+void SS_READ(PINT16S W, PBIT B)
+{
+    #define SysRegAddr_HD_D_HM_M
 
     #define D W
     #define M B
@@ -181,8 +184,10 @@
     #define float_to_int(x,k)    ((int)round((x) * pow(10,k)))
     //  vd: D[140] = float_to_int(FW[132], 2); // 12.34 thành 1234 để lưu dạng số nguyên
 
-//khai bao 
+// khai bao 
 
-//tinh toan 
+// tinh toan 
 
-// xuat d hoac m 
+//xuat d hoac m 
+    
+}
