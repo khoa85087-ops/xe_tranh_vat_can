@@ -3,14 +3,6 @@ void DZ(PINT16S W, PBIT B)
 {
     #define SysRegAddr_HD_D_HM_M
 
-    #define D W
-    #define FD FW
-
-    /* ===== hằng số ===== */
-    #define M_PI      3.14159265
-    #define pi        M_PI
-    //  vd: FW[20] = pi * 2;                   // ra 6.283
-
     #define deg2rad   0.01745329
     //  vd: FW[32] = 90 * deg2rad;             // 90 độ ra 1.5708 rad
 
@@ -37,17 +29,10 @@ void DZ(PINT16S W, PBIT B)
     #define min4(a,b,c,d)       min(min(a,b),min(c,d))
     //  vd: D[15] = min4(D[0], D[1], D[2], D[3]); // nhỏ nhất trong 4 số
 
-    #define median3(a,b,c)      max(min(a,b),min(max(a,b),c))
-    //  vd: D[16] = median3(D[0], D[1], D[2]); // số ở giữa (5,9,7 ra 7)
 
     #define limit(x,lo,hi)      ((x) < (lo) ? (lo) : ((x) > (hi) ? (hi) : (x)))
     //  vd: D[17] = limit(D[0], 0, 100);       // chặn giá trị trong khoảng 0..100, cần lo <= hi
 
-    #define in_range(x,lo,hi)   ((x) >= (lo) && (x) <= (hi))
-    //  vd: M[0] = in_range(D[0], 10, 50);     // trong khoảng thì M0 = 1
-
-    #define out_range(x,lo,hi)  ((x) < (lo) || (x) > (hi))
-    //  vd: M[1] = out_range(D[0], 10, 50);    // ngoài khoảng thì M1 = 1
     #define up(x)    ceil(x)     // làm tròn lên
     #define down(x)  floor(x)    // làm tròn xuống
     #define abs(x)   fabs(x)     // trị tuyệt đối
@@ -114,5 +99,5 @@ void DZ(PINT16S W, PBIT B)
 
 //TINH TOAN 
 
-// GAN LAI D HOAC B 
+// GAN LAI W,FW HOAC B 
 }
