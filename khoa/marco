@@ -50,30 +50,7 @@ void SS_READ(PINT16S W, PBIT B)
     //  vd: M[1] = out_range(D[0], 10, 50);    // ngoài khoảng thì M1 = 1
 
 
-    /* ===== số học cơ bản ===== */
-    #define abs(x)              ((x) < 0 ? -(x) : (x))
-    //  vd: D[20] = abs(D[0]);                 // bỏ dấu âm (-5 ra 5)
 
-    #define sign(x)             ((x) > 0 ? 1 : ((x) < 0 ? -1 : 0))
-    //  vd: D[21] = sign(D[0]);                // dương ra 1, âm ra -1, bằng 0 ra 0
-
-
-    /* ===== lũy thừa, số mũ nguyên 0..10 ===== */
-    #define pow(x,n) \
-        ((n) == 0 ? 1.0f : \
-         (n) == 1 ? (float)(x) : \
-         (n) == 2 ? (float)(x) * (x) : \
-         (n) == 3 ? (float)(x) * (x) * (x) : \
-         (n) == 4 ? (float)(x) * (x) * (x) * (x) : \
-         (n) == 5 ? (float)(x) * (x) * (x) * (x) * (x) : \
-         (n) == 6 ? (float)(x) * (x) * (x) * (x) * (x) * (x) : \
-         (n) == 7 ? (float)(x) * (x) * (x) * (x) * (x) * (x) * (x) : \
-         (n) == 8 ? (float)(x) * (x) * (x) * (x) * (x) * (x) * (x) * (x) : \
-         (n) == 9 ? (float)(x) * (x) * (x) * (x) * (x) * (x) * (x) * (x) * (x) : \
-         (n) == 10 ? (float)(x) * (x) * (x) * (x) * (x) * (x) * (x) * (x) * (x) * (x) : 0.0f)
-    //  vd: FW[200] = pow(D[0], 2);            // bình phương
-    //  vd: FW[202] = pow(2, 10);             // 2 mũ 10 ra 1024
-    //  vd: FW[204] = pow(1.5, 3);            // 1.5 mũ 3 ra 3.375
 
     /* pown: x mũ n với n >= 0. Là lệnh, đứng riêng một dòng.
        kq nên là FW hoặc biến số phù hợp; i là biến tạm kiểu số nguyên. */
@@ -81,37 +58,6 @@ void SS_READ(PINT16S W, PBIT B)
         do { (kq) = 1.0f; for ((i) = 0; (i) < (n); (i)++) (kq) *= (x); } while(0)
     //  vd: pown(FW[204], 2.0, 10, i);         // 2 mũ 10 ra 1024
 
-
-    /* ===== chia lấy dư và chia làm tròn xuống ===== */
-    /* Dùng cho số nguyên; công thức mod dưới đây phù hợp nhất khi b > 0. */
-    #define mod(a,b)            ((b) > 0 ? ((((long)(a) % (b)) + (b)) % (b)) : 0)
-    //  vd: D[23] = mod(-17, 5);               // ra 3
-
-    #define floordiv(a,b)       ((b) > 0 ? (((long)(a) - mod(a,b)) / (b)) : 0)
-    //  vd: D[22] = floordiv(-17, 5);          // ra -4
-    //  Lưu ý: b phải > 0; b <= 0 thì trả về 0
-
-
-    /* ===== làm tròn số ===== */
-    #define trunc(x)            ((long)(x))
-    //  vd: D[30] = trunc(FW[40]);             // bỏ phần lẻ: 3.7 ra 3, -3.7 ra -3
-
-    #define frac(x)             ((x) - (long)(x))
-    //  vd: FW[44] = frac(FW[40]);             // phần lẻ có dấu: -3.7 ra -0.7
-
-    #define round(x)            ((long)((x) + ((x) >= 0 ? 0.5 : -0.5)))
-    //  vd: D[31] = round(FW[40]);             // 3.7 ra 4, -3.5 ra -4
-
-    #define floor(x)            ((long)(x) - ((x) < (long)(x)))
-    //  vd: D[32] = floor(FW[40]);             // làm tròn xuống: -3.2 ra -4
-
-    #define ceil(x)             ((long)(x) + ((x) > (long)(x)))
-    //  vd: D[33] = ceil(FW[40]);              // làm tròn lên: -3.7 ra -3
-
-    #define round_n(x,k)        ((float)round((x) * pow(10,k)) / pow(10,k))
-    //  vd: FW[46] = round_n(FW[40], 2);       // giữ 2 chữ số thập phân: 3.14159 ra 3.14
-    //  vd: FW[47] = round_n(FW[40], 0);       // làm tròn số nguyên: 3.7 ra 4
-    //  vd: FW[48] = round_n(FW[40], 1);       // giữ 1 chữ số thập phân: 3.14159 ra 3.1
 
 
     /* ===== map đổi giá trị cảm biến ===== */
@@ -150,30 +96,6 @@ void SS_READ(PINT16S W, PBIT B)
     #define rads2rpm(w)         ((w) * 9.5492966)
     #define rpm2hz(n)           ((n) * 0.01666667)
     #define hz2rpm(f)           ((f) * 60.0)
-
-
-    /* ===== lọc nhiễu trung bình trượt tối đa 5 mẫu ===== */
-
-#define filter_avg5(x,bd,i,out) \
-    do { \
-        if (D[(bd)+5] < 5) { \
-            D[(bd)+D[(bd)+5]] = (x); \
-            D[(bd)+5]++; \
-        } else { \
-            for ((i) = 0; (i) < 4; (i)++) \
-                D[(bd)+(i)] = D[(bd)+(i)+1]; \
-            D[(bd)+4] = (x); \
-        } \
-        (out) = 0; \
-        for ((i) = 0; (i) < D[(bd)+5]; (i)++) \
-            (out) += D[(bd)+(i)]; \
-        (out) /= (float)D[(bd)+5]; \
-    } while(0)
-
-//  vd: filter_avg5(D[2], 200, i, FW[103]);
-// doc tu d2 
-//  FW103: kết quả trung bình cộng
-
 
 
 /* ===== chuyển số xung thành số vòng quay ===== */
