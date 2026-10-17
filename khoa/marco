@@ -1,5 +1,5 @@
 
-void SS_READ(PINT16S W, PBIT B)
+void DZ(PINT16S W, PBIT B)
 {
     #define SysRegAddr_HD_D_HM_M
 
@@ -48,15 +48,11 @@ void SS_READ(PINT16S W, PBIT B)
 
     #define out_range(x,lo,hi)  ((x) < (lo) || (x) > (hi))
     //  vd: M[1] = out_range(D[0], 10, 50);    // ngoài khoảng thì M1 = 1
+    #define up(x)    ceil(x)     // làm tròn lên
+    #define down(x)  floor(x)    // làm tròn xuống
+    #define abs(x)   fabs(x)     // trị tuyệt đối
 
 
-
-
-    /* pown: x mũ n với n >= 0. Là lệnh, đứng riêng một dòng.
-       kq nên là FW hoặc biến số phù hợp; i là biến tạm kiểu số nguyên. */
-    #define pown(kq,x,n,i) \
-        do { (kq) = 1.0f; for ((i) = 0; (i) < (n); (i)++) (kq) *= (x); } while(0)
-    //  vd: pown(FW[204], 2.0, 10, i);         // 2 mũ 10 ra 1024
 
 
 
@@ -77,25 +73,6 @@ void SS_READ(PINT16S W, PBIT B)
     #define deg(r)              ((r) * rad2deg)
     //  vd: FW[62] = deg(1.5708);              // 1.5708 rad ra khoảng 90 độ
 
-    #define c2f(c)              ((c) * 1.8 + 32.0)
-    #define f2c(f)              (((f) - 32.0) * 0.55555556)
-    #define c2k(c)              ((c) + 273.15)
-    #define k2c(k)              ((k) - 273.15)
-
-    #define bar2kpa(b)          ((b) * 100.0)
-    #define kpa2bar(k)          ((k) * 0.01)
-    #define bar2mpa(b)          ((b) * 0.1)
-
-    #define mm2inch(m)          ((m) * 0.03937008)
-    #define inch2mm(i)          ((i) * 25.4)
-
-    #define ms2kmh(v)           ((v) * 3.6)
-    #define kmh2ms(v)           ((v) * 0.27777778)
-
-    #define rpm2rads(n)         ((n) * 0.10471976)
-    #define rads2rpm(w)         ((w) * 9.5492966)
-    #define rpm2hz(n)           ((n) * 0.01666667)
-    #define hz2rpm(f)           ((f) * 60.0)
 
 
 /* ===== chuyển số xung thành số vòng quay ===== */
@@ -129,7 +106,7 @@ void SS_READ(PINT16S W, PBIT B)
 
 
     /* ===== đổi float sang số nguyên có hệ số nhân ===== */
-    #define float_to_int(x,k)    ((int)round((x) * pow(10,k)))
+    #define f2i(x,k)    ((int)round((x) * pow(10,k)))
     //  vd: D[140] = float_to_int(FW[132], 2); // 12.34 thành 1234 để lưu dạng số nguyên
 
 
