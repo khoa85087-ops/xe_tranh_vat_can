@@ -60,21 +60,6 @@ void DZ(PINT16S W, PBIT B)
 
 
 
-/* ===== chuyển số xung thành số vòng quay ===== */
-/* pulse: số xung đã nhận
-   ppr: số xung tương ứng 1 vòng
-   out: số vòng quay */
-#define pulse_to_rev(pulse,ppr,out) \
-    do { \
-        (out) = (float)(pulse) / (ppr); \
-    } while(0)
-
-//  vd: pulse_to_rev(D[10], 200, FW[100]);
-//  D10: số xung; 200: xung/vòng; FW100: số vòng quay
-
-
-
-
     /* ===== nội suy bảng tra ===== */
     #define interp(x,bx,by,n,i,kq) \
         do { \
