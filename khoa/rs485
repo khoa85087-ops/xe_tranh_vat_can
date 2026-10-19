@@ -1,0 +1,147 @@
+// RS485 Modbus RTU -> PLC Xinje, dung UART cung (chan 0 = RX, chan 1 = TX)
+// Day noi:  RO -> D0 (RX)   DI -> D1 (TX)   DE+RE -> D8
+// Khong con Serial Monitor. Trang thai bao bang den LED_BUILTIN (D13):
+//   OK            : sang 1 lan dai
+//   Khong phan hoi: nhay 3 lan nhanh
+//   Loi/Sai CRC   : nhay 6 lan rat nhanh
+// LUU Y: RUT day RO va DI khoi D0/D1 truoc khi nap code!
+
+#define BTN_X2   2
+#define BTN_X3   3
+#define BTN_X4   4       // doc D120
+#define DE_RE    8
+#define SLAVE_ID 1
+
+bool lastX2 = HIGH;
+bool lastX3 = HIGH;
+bool lastX4 = HIGH;
+unsigned long lastDebounce = 0;
+
+uint16_t crc16(uint8_t *buf, uint8_t len) {
+  uint16_t crc = 0xFFFF;
+  for (uint8_t i = 0; i < len; i++) {
+    crc ^= buf[i];
+    for (uint8_t j = 0; j < 8; j++) {
+      if (crc & 1) crc = (crc >> 1) ^ 0xA001;
+      else         crc >>= 1;
+    }
+  }
+  return crc;
+}
+
+void nhay(uint8_t lan, uint16_t ms) {
+  for (uint8_t i = 0; i < lan; i++) {
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(ms);
+    digitalWrite(LED_BUILTIN, LOW);
+    delay(ms);
+  }
+}
+
+uint8_t guiVaNhan(uint8_t *tx, uint8_t *rx, uint8_t expectLen) {
+  while (Serial.available()) Serial.read();   // xoa bo dem nhan
+
+  digitalWrite(DE_RE, HIGH);
+  delayMicroseconds(100);
+  Serial.write(tx, 8);
+  Serial.flush();                              // cho gui xong byte cuoi
+  delayMicroseconds(500);
+  digitalWrite(DE_RE, LOW);
+
+  uint8_t n = 0;
+  unsigned long t = millis();
+  while (millis() - t < 500 && n < 32) {
+    if (Serial.available()) {
+      rx[n++] = Serial.read();
+      t = millis();
+      if (n >= expectLen) break;
+    }
+  }
+  return n;
+}
+
+void taoKhung(uint8_t *tx, uint8_t func, uint16_t addr, uint16_t val) {
+  tx[0] = SLAVE_ID;
+  tx[1] = func;
+  tx[2] = addr >> 8;
+  tx[3] = addr & 0xFF;
+  tx[4] = val >> 8;
+  tx[5] = val & 0xFF;
+  uint16_t crc = crc16(tx, 6);
+  tx[6] = crc & 0xFF;
+  tx[7] = crc >> 8;
+}
+
+void ghiThanhGhi(uint16_t addr, uint16_t value) {
+  uint8_t tx[8], rx[32];
+  taoKhung(tx, 0x06, addr, value);
+  uint8_t n = guiVaNhan(tx, rx, 8);
+
+  if (n == 0) {
+    nhay(3, 150);                              // khong phan hoi
+  } else if (n >= 3 && (rx[1] & 0x80)) {
+    nhay(6, 60);                               // PLC bao loi
+  } else if (n == 8) {
+    uint16_t c = crc16(rx, 6);
+    bool crcOk = (rx[6] == (c & 0xFF)) && (rx[7] == (c >> 8));
+    if (crcOk) nhay(1, 600); else nhay(6, 60);
+  } else {
+    nhay(6, 60);
+  }
+}
+
+void docThanhGhi(uint16_t addr) {
+  uint8_t tx[8], rx[32];
+  taoKhung(tx, 0x03, addr, 1);
+  uint8_t n = guiVaNhan(tx, rx, 7);
+
+  if (n == 0) {
+    nhay(3, 150);
+  } else if (n >= 3 && (rx[1] & 0x80)) {
+    nhay(6, 60);
+  } else if (n == 7) {
+    uint16_t c = crc16(rx, 5);
+    bool crcOk = (rx[5] == (c & 0xFF)) && (rx[6] == (c >> 8));
+    if (crcOk) nhay(1, 600); else nhay(6, 60);
+    // gia tri D120 = (rx[3] << 8) | rx[4]  (khong in duoc vi khong co Serial Monitor)
+  } else {
+    nhay(6, 60);
+  }
+}
+
+void setup() {
+  pinMode(BTN_X2, INPUT_PULLUP);
+  pinMode(BTN_X3, INPUT_PULLUP);
+  pinMode(BTN_X4, INPUT_PULLUP);
+  pinMode(DE_RE, OUTPUT);
+  digitalWrite(DE_RE, LOW);
+  pinMode(LED_BUILTIN, OUTPUT);
+
+  Serial.begin(9600);        // UART cung -> RS485 -> PLC (8N1)
+  nhay(2, 200);              // bao san sang
+}
+
+void loop() {
+  bool x2 = digitalRead(BTN_X2);
+  bool x3 = digitalRead(BTN_X3);
+  bool x4 = digitalRead(BTN_X4);
+
+  if (millis() - lastDebounce > 30) {
+    if (lastX2 == HIGH && x2 == LOW) {
+      ghiThanhGhi(100, 100);
+      lastDebounce = millis();
+    }
+    if (lastX3 == HIGH && x3 == LOW) {
+      ghiThanhGhi(110, 100);
+      lastDebounce = millis();
+    }
+    if (lastX4 == HIGH && x4 == LOW) {
+      docThanhGhi(120);
+      lastDebounce = millis();
+    }
+  }
+
+  lastX2 = x2;
+  lastX3 = x3;
+  lastX4 = x4;
+}
