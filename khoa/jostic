@@ -1,0 +1,14 @@
+void setup() {
+  Serial.begin(9600);
+  pinMode(2, INPUT_PULLUP);
+}
+
+void loop() {
+  int x = analogRead(A0);
+  int y = analogRead(A1);
+  int nut = digitalRead(2); // 0 = đang nhấn
+  Serial.print(x); Serial.print(" , ");
+  Serial.print(y); Serial.print(" , ");
+  Serial.println(nut);
+  delay(100);
+}
