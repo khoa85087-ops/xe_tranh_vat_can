@@ -1,0 +1,25 @@
+const int PIN_IN  = 10;
+const int PIN_LED = 13;
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(PIN_IN, INPUT_PULLUP);   // kéo lên sẵn trong chip
+  pinMode(PIN_LED, OUTPUT);
+}
+
+void loop() {
+  if (digitalRead(PIN_IN) == LOW) {   // opto dẫn -> chân 10 xuống LOW
+    Serial.println("Opto kich");
+
+    // uint16_t x1 = doc(120);
+    // if (x1 == 100) {
+      for (int i = 0; i < 5; i++) {
+        digitalWrite(PIN_LED, HIGH);
+        delay(500);
+        digitalWrite(PIN_LED, LOW);
+        delay(500);
+      }
+    // }
+    // ghi(200, 1);
+  }
+}
