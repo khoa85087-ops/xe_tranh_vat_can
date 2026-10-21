@@ -2,7 +2,7 @@
 #include <stdint.h>
 const byte HANG = 4;
 const byte COT = 4;
-
+const int PIN_IN  = 10;
 char phim[HANG][COT] = {
   {'1','2','3','A'},
   {'4','5','6','B'},
@@ -86,31 +86,67 @@ uint16_t doc(uint16_t diaChi) {
 }
 void setup() {
   Serial.begin(9600);
-  pinMode(10,1);
+ pinMode(PIN_IN, INPUT);       // cần pull-down 10k xuống GND
+  pinMode(13, OUTPUT);
+  
 }
-
+int dv1=0;int chuc1=0;int tram1=0;int dem1=0;int sum1=0;int so1;
+int dv=0;int chuc=0;int tram=0;int dem=0;int sum=0;int so;
 void loop() {
+xz:;
+
   char k = banPhim.getKey();
 if (k) {
  if (k >= '0' && k <= '9') {
-    int so = k - '0';   // '5' thành 5
-    ghi(100,so);
-    Serial.println(so);
+    so = k - '0';   // '5' thành 5
+    
+    
   }
   else if (k){
-    ghi(100,k);
-    Serial.println(k);
+    if(k=='A') goto xj;
+    if(k='B') goto xn;
   }
+  
+  dem++;
+
+if (dem==1){
+  ghi(100,so);
+    Serial.println(so);
+  dv=so;
+sum =sum+dv;
+}
+else if (dem==2){
+  ghi(101,so);
+  Serial.println(so);
+  sum=sum*10+so;
+}
+else if (dem==3){
+  ghi(102,so);
+  Serial.println(so);
+  sum=sum*10+so;
+  
+}
+
+if (k!='A') goto xz;
+xj:;
+
+ghi(100,0);
+ghi(101,0);
+ghi(102,0);
+ghi(103,sum);
+Serial.print("sum tai 103  ");
+  Serial.println(sum);
+  sum=0;chuc=0;tram=0;dv=0;dem=0;
+xn:;
+if (k=='A') goto en;
+ghi(100,0);
+ghi(101,0);
+ghi(102,0);
+ghi(104,sum);
+ Serial.print("sum tai 104  ");
+  Serial.println(sum);
+  sum=0;chuc=0;tram=0;dv=0;dem=0;
 
 }
- /*uint16_t x1 = doc(120);
-
-    if (x1 == 100) {
-      for (int i=0;i<5;i++){
-        digitalWrite (10,1);
-        delay(500);
-        digitalWrite(10,0);
-        delay(500);
-      }
-    }*/
+en:;
 }
