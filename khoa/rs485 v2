@@ -1,0 +1,165 @@
+#include <Keypad.h>
+#include <stdint.h>
+const byte HANG = 4;
+const byte COT = 4;
+const int PIN_IN  = 10;
+char phim[HANG][COT] = {
+  {'1','2','3','A'},
+  {'4','5','6','B'},
+  {'7','8','9','C'},
+  {'*','0','#','D'}
+};
+
+byte chanHang[HANG] = {9, 8, 7, 6};
+byte chanCot[COT]   = {5, 4, 3, 2};
+
+Keypad banPhim = Keypad(makeKeymap(phim), chanHang, chanCot, HANG, COT);
+// Mang chuan Modbus RTU
+uint8_t ghiD100[8] = {0x01, 0x06, 0x00, 0x64, 0x00, 0x64, 0xC9, 0xFE};
+uint8_t docD120[8] = {0x01, 0x03, 0x00, 0x78, 0x00, 0x01, 0x04, 0x13};
+// Tinh CRC16 Modbus
+uint16_t crc16(uint8_t *buf, uint8_t len) {
+  uint16_t crc = 0xFFFF;
+
+  for (uint8_t i = 0; i < len; i++) {
+    crc ^= buf[i];
+    for (uint8_t j = 0; j < 8; j++)
+      crc = (crc & 1) ? (crc >> 1) ^ 0xA001 : crc >> 1;
+  }
+
+  return crc;
+}
+
+// Cap nhat CRC
+void datCRC(uint8_t *m) {
+  uint16_t crc = crc16(m, 6);
+  m[6] = crc & 0xFF;
+  m[7] = crc >> 8;
+}
+
+// Gui khung va nhan phan hoi
+uint8_t guiNhan(uint8_t *tx, uint8_t *rx, uint8_t soByte) {
+  while (Serial.available()) Serial.read();
+
+  Serial.write(tx, 8);
+  Serial.flush();
+
+  uint8_t n = 0;
+  unsigned long t = millis();
+
+  while (millis() - t < 500 && n < soByte) {
+    if (Serial.available()) {
+      rx[n++] = Serial.read();
+      t = millis();
+    }
+  }
+
+  return n;
+}
+
+// Ghi thanh ghi
+bool ghi(uint16_t diaChi, uint16_t giaTri) {
+  uint8_t rx[8];
+
+  ghiD100[2] = diaChi >> 8;
+  ghiD100[3] = diaChi & 0xFF;
+  ghiD100[4] = giaTri >> 8;
+  ghiD100[5] = giaTri & 0xFF;
+
+  datCRC(ghiD100);
+
+  return guiNhan(ghiD100, rx, 8) == 8;
+}
+
+// Doc thanh ghi
+uint16_t doc(uint16_t diaChi) {
+  uint8_t rx[8];
+
+  docD120[2] = diaChi >> 8;
+  docD120[3] = diaChi & 0xFF;
+
+  datCRC(docD120);
+
+  if (guiNhan(docD120, rx, 7) != 7) return 0xFFFF;
+
+  return ((uint16_t)rx[3] << 8) | rx[4];
+}
+void setup() {
+  Serial.begin(9600);
+  pinMode(10, INPUT_PULLUP);   // kéo lên sẵn trong chip
+  pinMode(11, OUTPUT);
+  
+}
+int dv1=0;int chuc1=0;int tram1=0;int dem1=0;int sum1=0;int so1;
+int dv=0;int chuc=0;int tram=0;int dem=0;int sum=0;int so;
+void loop() {
+xz:;
+  if (digitalRead(10) == LOW) {   // opto dẫn -> chân 10 xuống LOW
+
+
+     uint16_t x1 = doc(120);
+     if (x1 == 100) {
+      for (int i = 0; i < 5; i++) {
+        digitalWrite(11, HIGH);
+        delay(500);
+        digitalWrite(11, LOW);
+        delay(500);
+      }
+     }
+     ghi(200, 1);
+  }
+  char k = banPhim.getKey();
+if (k) {
+ if (k >= '0' && k <= '9') {
+    so = k - '0';   // '5' thành 5
+    
+    
+  }
+  else if (k){
+    if(k=='A') goto xj;
+    if(k=='B') goto xn;
+  }
+  
+  dem++;
+
+if (dem==1){
+  ghi(100,so);
+    Serial.println(so);
+  dv=so;
+sum =sum+dv;
+}
+else if (dem==2){
+  ghi(101,so);
+  Serial.println(so);
+  sum=sum*10+so;
+}
+else if (dem==3){
+  ghi(102,so);
+  Serial.println(so);
+  sum=sum*10+so;
+  
+}
+
+if (k!='A') goto xz;
+xj:;
+
+ghi(100,0);
+ghi(101,0);
+ghi(102,0);
+ghi(103,sum);
+Serial.print("sum tai 103  ");
+  Serial.println(sum);
+  sum=0;chuc=0;tram=0;dv=0;dem=0;
+xn:;
+if (k=='A') goto en;
+ghi(100,0);
+ghi(101,0);
+ghi(102,0);
+ghi(104,sum);
+ Serial.print("sum tai 104  ");
+  Serial.println(sum);
+  sum=0;chuc=0;tram=0;dv=0;dem=0;
+
+}
+en:;
+}
