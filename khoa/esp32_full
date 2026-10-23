@@ -479,10 +479,36 @@ void setup() {
   server.begin();
   Serial.println("Web server da chay. Go lenh: 1:hello | 1:d100,100 | 9,1 | info");
 }
+///////////////////////////////////////khai bao o day 
+bool lastIn7 = 1;               // trạng thái cũ của chân 7
+int blinkLeft = 0;              // số lần nháy còn lại
+unsigned long lastBlink = 0;    // mốc thời gian của lần đổi LED gần nhất
 
+/////////////////////////////////////////////
 void loop() {
   server.handleClient();
   handleSerialCmd();
+///////////////////////////////code ơ day 
+
+  // ===== ĐỌC CHÂN 7 -> NHÁY LED CHÂN 10 (5 LẦN) =====
+  bool in7 = digitalRead(7);
+
+  // Vừa chuyển từ 1 xuống 0 (mới nối GND) -> bắt đầu nháy 5 lần
+  if (lastIn7 == 1 && in7 == 0 && blinkLeft == 0) {
+    blinkLeft = 5 * 2;            // 5 lần nháy = 10 lần đổi trạng thái (sáng/tắt)
+    lastBlink = millis();
+  }
+  lastIn7 = in7;
+
+  // Cứ mỗi 200 ms thì đảo LED 1 lần
+  if (blinkLeft > 0 && millis() - lastBlink >= 200) {
+    lastBlink = millis();
+    digitalWrite(10, !digitalRead(10));   // đảo trạng thái LED
+    blinkLeft--;
+  }
+  // ===================================================
+
+/////////////////////////////////////////////////
 
   // Nhận dữ liệu từ các cổng RS485
   for (int i = 0; i < NUM_PORTS; i++) {
