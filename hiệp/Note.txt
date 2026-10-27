@@ -1,0 +1,6 @@
+Chân Pb9 dùng ngắt tim4
+Các chân cảm biến hồng ngoại cấu hình pull up từ PB3-7
+MOTOR B Ở BÊN PHẢI HƯỚNG TỪ CỤC PIN, CHÂN PA1 NỐI VỚI IN3, PA15 NỐI VỚI IN4
+MOTOR A Ở BÊN TRÁI, CHÂN PA4 NỐI IN1, PA5 NỐI IN2
+NÊN GIỮ NGUYÊN ĐẤU NỐI TRÁNH NHẦM LẪN
+
