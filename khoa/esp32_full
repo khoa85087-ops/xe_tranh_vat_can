@@ -14,6 +14,9 @@
     d120:5    -> đọc D120..D124     (lệnh 03)
     chuỗi khác -> gửi text thường
 
+  CHỨC NĂNG THÊM: nhấn chân 38 (nối GND) -> đọc D100 (cổng 1)
+                  nếu D100 = 100 thì LED chân 10 nháy 5 lần
+
   Arduino IDE: ESP32S3 Dev Module, USB CDC On Boot: DISABLED, Flash 16MB, PSRAM OPI
 */
 
@@ -44,6 +47,14 @@ const int LOG_MAX = 800;                       // số ký tự log RX giữ l�
 #define MB_SERIAL_CFG  SERIAL_8N1   // PLC thường là SERIAL_8E1 hoặc SERIAL_7E1
 #define MB_FIRST_TO    300          // chờ byte đầu tối đa (ms)
 #define MB_GAP_TO      20           // hết khung khi im quá 20ms
+
+// ---- Chức năng thêm: nút chân 38 -> đọc D100 -> nháy LED ----
+#define BTN_PIN        38           // chân nút nhấn
+#define LED_PIN        10           // chân LED
+#define CHECK_D        100          // thanh ghi cần đọc (D100)
+#define CHECK_VALUE    100          // giá trị cần so sánh
+#define BLINK_TIMES    5            // số lần nháy
+#define BLINK_MS       200          // thời gian mỗi lần đảo LED (ms)
 // ========================================================
 
 WebServer server(80);
@@ -55,6 +66,11 @@ unsigned long txCount[NUM_PORTS] = {0, 0};
 
 bool wifiWasConnected = false;
 unsigned long lastWifiTry = 0;
+
+// Biến cho chức năng nháy LED (khai báo NGOÀI loop)
+bool lastBtn = 1;               // trạng thái cũ của chân nút
+int blinkLeft = 0;              // số lần đảo LED còn lại
+unsigned long lastBlink = 0;    // mốc thời gian lần đảo LED gần nhất
 
 // ======================= TRANG WEB =======================
 const char PAGE[] PROGMEM = R"rawliteral(
@@ -278,6 +294,31 @@ bool modbusCommand(HardwareSerial &p, String s, String &log) {
   return true;
 }
 
+// Ghi val vào D<d>. Trả về true nếu PLC trả lời OK
+bool mbWriteD(int port, uint16_t d, uint16_t val) {
+  String log;
+  modbusCommand(*ports[port], "d" + String(d) + "," + String(val), log);
+  return log.indexOf("OK:") >= 0;
+}
+
+// Đọc D<d> vào biến val. Trả về true nếu đọc được
+bool mbReadD(int port, uint16_t d, uint16_t &val) {
+  uint8_t tx[8], rx[16];
+  uint16_t addr = d + D_OFFSET;
+  tx[0] = SLAVE_ID; tx[1] = 0x03;
+  tx[2] = addr >> 8; tx[3] = addr & 0xFF;
+  tx[4] = 0;         tx[5] = 1;
+  uint16_t crc = crc16(tx, 6);
+  tx[6] = crc & 0xFF; tx[7] = crc >> 8;
+
+  size_t n = mbTransact(*ports[port], tx, 8, rx, sizeof(rx));
+  if (n < 7) return false;
+  if (crc16(rx, n - 2) != (uint16_t)(rx[n - 2] | (rx[n - 1] << 8))) return false;
+  if (rx[1] & 0x80) return false;
+  val = (rx[3] << 8) | rx[4];
+  return true;
+}
+
 // ======================= RS485 =======================
 void rs485Send(int idx, const String& msg) {
   String log;
@@ -479,36 +520,28 @@ void setup() {
   server.begin();
   Serial.println("Web server da chay. Go lenh: 1:hello | 1:d100,100 | 9,1 | info");
 }
-///////////////////////////////////////khai bao o day 
-bool lastIn7 = 1;               // trạng thái cũ của chân 7
-int blinkLeft = 0;              // số lần nháy còn lại
-unsigned long lastBlink = 0;    // mốc thời gian của lần đổi LED gần nhất
-
-/////////////////////////////////////////////
+unsigned long start = 0;   // khai báo phía trên setup()
+unsigned long t=0;
 void loop() {
   server.handleClient();
   handleSerialCmd();
-///////////////////////////////code ơ day 
 
-  // ===== ĐỌC CHÂN 7 -> NHÁY LED CHÂN 10 (5 LẦN) =====
-  bool in7 = digitalRead(7);
+    if (digitalRead(38) == 0 && start == 0) start = millis();   // nhấn nút: ghi giờ bắt đầu
+  if (start != 0){
+     t = millis() - start;   // đã qua bao nhiêu ms
 
-  // Vừa chuyển từ 1 xuống 0 (mới nối GND) -> bắt đầu nháy 5 lần
-  if (lastIn7 == 1 && in7 == 0 && blinkLeft == 0) {
-    blinkLeft = 5 * 2;            // 5 lần nháy = 10 lần đổi trạng thái (sáng/tắt)
-    lastBlink = millis();
+    if      (t < 500)  digitalWrite(9, HIGH);   // nháy 1: sáng
+    else if (t < 1000)  digitalWrite(9, LOW);    //         tắt
+    else if (t < 1500)  digitalWrite(9, HIGH);   // nháy 2: sáng
+    else if (t < 2000)  digitalWrite(9, LOW);    //         tắt
+    else if (t < 2500) digitalWrite(9, HIGH);   // nháy 3: sáng
+    else if (t < 3000) digitalWrite(9, LOW);    //         tắt
+    else if (t < 3500) digitalWrite(9, HIGH);   // nháy 4: sáng
+    else if (t < 4000) digitalWrite(9, LOW);    //         tắt
+    else if (t < 4500) digitalWrite(9, HIGH);   // nháy 5: sáng
+    else if (t < 5000) digitalWrite(9, LOW);    //         tắt
+    else if (t==5000)start = 0;                             // xong, cho phép nhấn lại
   }
-  lastIn7 = in7;
-
-  // Cứ mỗi 200 ms thì đảo LED 1 lần
-  if (blinkLeft > 0 && millis() - lastBlink >= 200) {
-    lastBlink = millis();
-    digitalWrite(10, !digitalRead(10));   // đảo trạng thái LED
-    blinkLeft--;
-  }
-  // ===================================================
-
-/////////////////////////////////////////////////
 
   // Nhận dữ liệu từ các cổng RS485
   for (int i = 0; i < NUM_PORTS; i++) {
