@@ -522,6 +522,7 @@ void setup() {
 }
 unsigned long start = 0;   // khai báo phía trên setup()
 unsigned long t=0;
+uint16_t d300 = 0;   // giá trị D300 đọc được
 void loop() {
   server.handleClient();
   handleSerialCmd();
@@ -542,7 +543,24 @@ void loop() {
     else if (t < 5000) digitalWrite(9, LOW);    //         tắt
     else if (t==5000)start = 0;                             // xong, cho phép nhấn lại
   }
+    // Nhấn nút chân 39 -> đọc D300 (cổng 1) và lưu vào biến d300
+  if (digitalRead(39) == 0) {
+    mbReadD(0, 300, d300);
+    while (digitalRead(39) == 0);   // chờ nhả nút
+    delay(50);                      // chống rung nút
+  }
+if (d300 == 100) digitalWrite(10, HIGH);
+else if (d300!=100) digitalWrite(10,LOW);
 
+
+
+
+  // Nhấn nút chân 40 -> ghi D200 = 100 (cổng 1)
+  if (digitalRead(40) == 0) {
+    mbWriteD(0, 200, 150);
+    while (digitalRead(40) == 0);   // chờ nhả nút
+    delay(50);                      // chống rung nút
+  }
   // Nhận dữ liệu từ các cổng RS485
   for (int i = 0; i < NUM_PORTS; i++) {
     if (ports[i]->available()) {
