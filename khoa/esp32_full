@@ -1,31 +1,39 @@
 /*
-  ESP32-S3 N16R8 - FULL: 5 ADC + 7 IN + 7 OUT + 2 RS485 + WiFi Web Server + Modbus RTU
+  ESP32-S3 N16R8 - 5 ADC + 7 IN + 7 OUT + 2 RS485 + WiFi Web + Modbus RTU + OTA + NTP
 
-  ADC  (5): GPIO1, 2, 4, 5, 6
-  IN   (7): GPIO7, 8, 14, 38, 39, 40, 41   (INPUT_PULLUP: không nối = 1, nối GND = 0)
-  OUT  (7): GPIO9, 10, 11, 12, 13, 21, 42
-  RS485 cổng 1 (UART1): TX=17  RX=18
-  RS485 cổng 2 (UART2): TX=15  RX=16
-  (module RS485 tự đảo chiều, không dùng DE/RE)
+  HÀM ĐỌC/GHI PLC (dùng ở bất kỳ đâu trong code):
+    long v = readD(120);      // đọc D120 (lỗi trả -1)
+    writeD(100, 500);         // ghi D100 = 500
+    int  m = readM(300);      // đọc M300 (lỗi trả -1)
+    writeM(400, true);        // bật M400
 
-  Lệnh Modbus RTU gõ ở ô "Nội dung gửi" (hoặc Serial Monitor: 1:d100,100):
-    d100,100  -> ghi 100 vào D100   (lệnh 06)
-    d120      -> đọc D120           (lệnh 03)
-    d120:5    -> đọc D120..D124     (lệnh 03)
-    chuỗi khác -> gửi text thường
+  NÚT NHẤN (ngắt, tất cả chân IN: 7, 8, 14, 38, 39, 40, 41):
+    if (pressed(39)) { ... }  // nhấn nút GPIO39 thì làm gì đó (mỗi lần nhấn chạy 1 lần)
 
-  CHỨC NĂNG THÊM: nhấn chân 38 (nối GND) -> đọc D100 (cổng 1)
-                  nếu D100 = 100 thì LED chân 10 nháy 5 lần
+  WEB: card "PLC: đọc / ghi D, M"  |  hoặc gõ ở ô RS485: d100,100 | d120:5 | m400,1 | m300:8
+  TỰ ĐỘNG (trong loop): M300 = 1 -> M300 = 1 và D200 = 0 | D200 = 10 -> D200 = 0 và M1 = 0
+
+  ADC (5): GPIO1,2,4,5,6   IN (7): GPIO7,8,14,38,39,40,41 (INPUT_PULLUP)
+  OUT (7): GPIO9,10,11,12,13,21,42
+  RS485 cổng 1 (UART1): TX=17 RX=18    cổng 2 (UART2): TX=15 RX=16
 
   Arduino IDE: ESP32S3 Dev Module, USB CDC On Boot: DISABLED, Flash 16MB, PSRAM OPI
+  Partition Scheme: loại CÓ OTA. Khi nạp OTA nên đóng trang web.
 */
 
 #include <WiFi.h>
 #include <WebServer.h>
+#include <ArduinoOTA.h>
+#include <time.h>
 
 // ======================= CẤU HÌNH =======================
 const char* WIFI_SSID = "PHONGTRO";
 const char* WIFI_PASS = "134@TruongDangQue";
+const char* OTA_HOST  = "esp32s3";
+const char* OTA_PASS  = "123456";
+
+const long GMT_OFFSET = 7 * 3600;                          // UTC+7
+const unsigned long NTP_RESYNC_MS = 10UL * 60UL * 1000UL;  // đồng bộ giờ mỗi 10 phút
 
 const int ADC_PINS[] = {1, 2, 4, 5, 6};
 const int IN_PINS[]  = {7, 8, 14, 38, 39, 40, 41};
@@ -38,23 +46,17 @@ const int NUM_PORTS = 2;
 HardwareSerial* ports[NUM_PORTS] = {&Serial1, &Serial2};
 const int TX_PIN[NUM_PORTS] = {17, 15};
 const int RX_PIN[NUM_PORTS] = {18, 16};
-
-const int LOG_MAX = 800;                       // số ký tự log RX giữ lại mỗi cổng
+const int LOG_MAX = 800;                                   // ký tự log giữ lại mỗi cổng
 
 // ---- Modbus RTU ----
 #define SLAVE_ID       1
-#define D_OFFSET       0            // Delta DVP: đặt 0x1000
+#define D_OFFSET       0            // Xinje: D100 = địa chỉ 100
 #define MB_SERIAL_CFG  SERIAL_8N1   // PLC thường là SERIAL_8E1 hoặc SERIAL_7E1
-#define MB_FIRST_TO    300          // chờ byte đầu tối đa (ms)
+#define MB_FIRST_TO    100          // chờ byte đầu tối đa (ms)
 #define MB_GAP_TO      20           // hết khung khi im quá 20ms
+#define MB_RX_MAX      64
 
-// ---- Chức năng thêm: nút chân 38 -> đọc D100 -> nháy LED ----
-#define BTN_PIN        38           // chân nút nhấn
-#define LED_PIN        10           // chân LED
-#define CHECK_D        100          // thanh ghi cần đọc (D100)
-#define CHECK_VALUE    100          // giá trị cần so sánh
-#define BLINK_TIMES    5            // số lần nháy
-#define BLINK_MS       200          // thời gian mỗi lần đảo LED (ms)
+#define PLC_PORT       0            // 0 = RS485 cổng 1, 1 = cổng 2
 // ========================================================
 
 WebServer server(80);
@@ -64,13 +66,30 @@ String rxLog[NUM_PORTS];
 unsigned long rxCount[NUM_PORTS] = {0, 0};
 unsigned long txCount[NUM_PORTS] = {0, 0};
 
-bool wifiWasConnected = false;
-unsigned long lastWifiTry = 0;
+bool wifiWasConnected = false, otaStarted = false, otaBusy = false;
+unsigned long lastWifiTry = 0, lastNtp = 0;
 
-// Biến cho chức năng nháy LED (khai báo NGOÀI loop)
-bool lastBtn = 1;               // trạng thái cũ của chân nút
-int blinkLeft = 0;              // số lần đảo LED còn lại
-unsigned long lastBlink = 0;    // mốc thời gian lần đảo LED gần nhất
+bool outLvl[7] = {};                 // trạng thái OUT (ESP tự nhớ)
+uint16_t d300 = 0;                   // D300 đọc được khi bấm nút 39
+bool plcOk = false;                  // lần đọc PLC gần nhất có thành công không
+
+// ---- Nút nhấn dùng ngắt: tất cả chân IN ----
+struct Btn { uint8_t pin; volatile bool flag; volatile unsigned long t; };
+Btn btns[7] = {{7, false, 0}, {8, false, 0}, {14, false, 0}, {38, false, 0},
+               {39, false, 0}, {40, false, 0}, {41, false, 0}};
+
+void IRAM_ATTR isrBtn(void* arg) {
+  Btn* b = (Btn*)arg;
+  unsigned long n = millis();
+  if (n - b->t > 50) { b->flag = true; b->t = n; }   // chống rung 50ms
+}
+
+// pressed(39) = nút GPIO39 vừa được nhấn (mỗi lần nhấn chỉ trả true một lần)
+bool pressed(int pin) {
+  for (auto &b : btns)
+    if (b.pin == pin && b.flag) { b.flag = false; return true; }
+  return false;
+}
 
 // ======================= TRANG WEB =======================
 const char PAGE[] PROGMEM = R"rawliteral(
@@ -97,10 +116,9 @@ const char PAGE[] PROGMEM = R"rawliteral(
   .btns { display: flex; flex-wrap: wrap; gap: 8px; }
   button { font-size: 14px; padding: 9px 14px; border: 0; border-radius: 7px; color: #fff; background: var(--accent); cursor: pointer; }
   button.out { min-width: 120px; }
-  button.on { background: var(--on); } button.off { background: var(--off); }
-  button.gray { background: var(--off); }
+  button.on { background: var(--on); } button.off, button.gray { background: var(--off); }
   pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin: 8px 0;
-        height: 90px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: 13px; }
+        height: 110px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: 13px; }
   input[type=text], input[type=number] { padding: 8px; border: 1px solid var(--line); border-radius: 6px;
         background: var(--bg); color: var(--text); font-size: 14px; }
   .line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; font-size: 14px; }
@@ -109,25 +127,31 @@ const char PAGE[] PROGMEM = R"rawliteral(
 </head>
 <body>
 <h1>ESP32-S3 N16R8</h1>
-<div class="sub">Chạy: <b id="up">-</b> giây &nbsp;|&nbsp; WiFi RSSI: <b id="rssi">-</b> dBm</div>
+<div class="sub">Giờ ESP: <b id="clk">-</b> &nbsp;|&nbsp; Lệch so với máy tính: <b id="skew">-</b>
+  &nbsp;|&nbsp; Chạy: <b id="up">-</b> giây &nbsp;|&nbsp; WiFi RSSI: <b id="rssi">-</b> dBm</div>
 <div class="grid">
   <div class="card"><h2>ADC (mV)</h2><div id="adc"></div></div>
   <div class="card"><h2>Ngõ vào IN</h2><div id="ins"></div><div class="small">1 = hở (kéo lên), 0 = nối GND</div></div>
   <div class="card"><h2>Ngõ ra OUT</h2><div class="btns" id="outs"></div></div>
+  <div class="card"><h2>PLC: đọc / ghi D, M</h2>
+    <div class="line">Địa chỉ <input type="number" id="pa" value="100" style="width:90px">
+      Giá trị <input type="number" id="pv" value="0" style="width:90px"></div>
+    <div class="line">
+      <button onclick="plc('d')">Đọc D</button><button onclick="plc('d',1)">Ghi D</button>
+      <button onclick="plc('m')">Đọc M</button><button onclick="plc('m',1)">Ghi M</button></div>
+    <pre id="pr"></pre></div>
   <div id="rs" style="display:contents"></div>
 </div>
 <script>
-let built = false;
+let built = false, busy = false;
 const outState = {};
 const el = id => document.getElementById(id);
+const get = url => fetch(url, {cache: 'no-store'});
 
 function build(d) {
-  el('adc').innerHTML = d.adc.map(a =>
-    `<div class="row"><span>GPIO${a.p}</span><b id="adc${a.p}">-</b></div>`).join('');
-  el('ins').innerHTML = d.in.map(a =>
-    `<div class="row"><span>GPIO${a.p}</span><b id="in${a.p}">-</b></div>`).join('');
-  el('outs').innerHTML = d.out.map(a =>
-    `<button class="out off" id="out${a.p}" onclick="toggleOut(${a.p})">GPIO${a.p}: TẮT</button>`).join('');
+  el('adc').innerHTML = d.adc.map(a => `<div class="row"><span>GPIO${a.p}</span><b id="adc${a.p}">-</b></div>`).join('');
+  el('ins').innerHTML = d.in.map(a => `<div class="row"><span>GPIO${a.p}</span><b id="in${a.p}">-</b></div>`).join('');
+  el('outs').innerHTML = d.out.map(a => `<button class="out off" id="out${a.p}" onclick="toggleOut(${a.p})">GPIO${a.p}: TẮT</button>`).join('');
   el('rs').innerHTML = d.rs.map((r, i) => `
     <div class="card">
       <h2>RS485 cổng ${i + 1} <span class="small">(UART${i + 1}, TX=${r.tx}, RX=${r.rx})</span></h2>
@@ -135,49 +159,59 @@ function build(d) {
         <button onclick="setBaud(${i})">Đặt</button></div>
       <div class="small">Nhận: <b id="rxn${i}">0</b> byte &nbsp;|&nbsp; Gửi: <b id="txn${i}">0</b> byte</div>
       <pre id="log${i}"></pre>
-      <div class="line"><input type="text" id="msg${i}" placeholder="Nội dung gửi (vd: d100,100)" style="flex:1; min-width:120px">
+      <div class="line"><input type="text" id="msg${i}" placeholder="vd: d100,100 | m400,1 | m300:8" style="flex:1; min-width:120px">
         <label><input type="checkbox" id="crlf${i}"> +CR/LF</label></div>
       <div class="line"><button onclick="sendRs(${i})">Gửi</button>
         <button class="gray" onclick="clearRs(${i})">Xóa log</button></div>
     </div>`).join('');
   built = true;
 }
-
+function showOut(p, v) {
+  const b = el('out' + p);
+  b.className = 'out ' + (v ? 'on' : 'off');
+  b.textContent = 'GPIO' + p + ': ' + (v ? 'BẬT' : 'TẮT');
+}
 function toggleOut(p) {
   const next = outState[p] ? 0 : 1;
-  fetch('/set?pin=' + p + '&state=' + next).then(update);
+  outState[p] = next; showOut(p, next);
+  get('/set?pin=' + p + '&state=' + next).then(update);
 }
 function sendRs(i) {
   const m = el('msg' + i).value + (el('crlf' + i).checked ? '\r\n' : '');
-  if (!m) return;
-  fetch('/rs485/send?port=' + (i + 1) + '&data=' + encodeURIComponent(m)).then(update);
+  if (m) get('/rs485/send?port=' + (i + 1) + '&data=' + encodeURIComponent(m)).then(update);
 }
 function setBaud(i) {
-  fetch('/rs485/baud?port=' + (i + 1) + '&baud=' + el('baud' + i).value)
-    .then(r => r.text()).then(t => { alert(t); update(); });
+  get('/rs485/baud?port=' + (i + 1) + '&baud=' + el('baud' + i).value).then(r => r.text()).then(t => { alert(t); update(); });
 }
-function clearRs(i) { fetch('/rs485/clear?port=' + (i + 1)).then(update); }
+function clearRs(i) { get('/rs485/clear?port=' + (i + 1)).then(update); }
+function plc(t, w) {
+  get('/plc?t=' + t + '&addr=' + el('pa').value + (w ? '&val=' + el('pv').value : ''))
+    .then(r => r.text()).then(x => el('pr').textContent = x + '\n' + el('pr').textContent);
+}
 
 function update() {
-  fetch('/status').then(r => r.json()).then(d => {
+  if (busy) return;
+  busy = true;
+  const ctl = new AbortController();
+  const to = setTimeout(() => ctl.abort(), 4000);
+  fetch('/status', {signal: ctl.signal, cache: 'no-store'}).then(r => r.json()).then(d => {
     if (!built) build(d);
+    el('clk').textContent = d.time;
+    el('skew').textContent = d.epoch > 1000000000
+      ? ((diff => (diff > 0 ? '+' : '') + diff + ' giây')(Math.round(Date.now() / 1000 - d.epoch)))
+      : 'ESP chưa có giờ';
     el('up').textContent = d.up;
     el('rssi').textContent = d.rssi;
     d.adc.forEach(a => el('adc' + a.p).textContent = a.mv + ' mV');
     d.in.forEach(a => el('in' + a.p).textContent = a.v);
-    d.out.forEach(a => {
-      outState[a.p] = a.v;
-      const b = el('out' + a.p);
-      b.className = 'out ' + (a.v ? 'on' : 'off');
-      b.textContent = 'GPIO' + a.p + ': ' + (a.v ? 'BẬT' : 'TẮT');
-    });
+    d.out.forEach(a => { outState[a.p] = a.v; showOut(a.p, a.v); });
     d.rs.forEach((r, i) => {
       el('rxn' + i).textContent = r.rxn;
       el('txn' + i).textContent = r.txn;
       const pre = el('log' + i);
       if (pre.textContent !== r.log) { pre.textContent = r.log; pre.scrollTop = pre.scrollHeight; }
     });
-  }).catch(() => {});
+  }).catch(() => {}).finally(() => { clearTimeout(to); busy = false; });
 }
 update();
 setInterval(update, 1000);
@@ -192,6 +226,12 @@ bool isOutPin(int pin) {
   return false;
 }
 
+// Mọi chỗ đổi OUT đều đi qua hàm này để nhớ trạng thái
+void setOut(int pin, bool lvl) {
+  digitalWrite(pin, lvl ? HIGH : LOW);
+  for (int i = 0; i < NUM_OUT; i++) if (OUT_PINS[i] == pin) outLvl[i] = lvl;
+}
+
 String jsonEscape(const String& s) {
   String o;
   o.reserve(s.length() + 8);
@@ -200,137 +240,185 @@ String jsonEscape(const String& s) {
     if (c == '"') o += "\\\"";
     else if (c == '\\') o += "\\\\";
     else if (c == '\n') o += "\\n";
-    else if (c == '\r') { /* bỏ qua */ }
+    else if (c == '\r') {}
     else if ((uint8_t)c < 32 || (uint8_t)c > 126) o += '.';
     else o += c;
   }
   return o;
 }
 
-// ======================= MODBUS RTU =======================
-uint16_t crc16(const uint8_t *buf, size_t len) {
+String timeStr() {
+  struct tm ti;
+  if (!getLocalTime(&ti, 0)) return "chua co gio";
+  char b[24];
+  strftime(b, sizeof(b), "%d/%m/%Y %H:%M:%S", &ti);
+  return String(b);
+}
+
+void startNtp() {
+  configTime(GMT_OFFSET, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
+  lastNtp = millis();
+}
+
+void appendLog(int idx, const String& s) {
+  rxLog[idx] += s;
+  if (rxLog[idx].length() > LOG_MAX) rxLog[idx] = rxLog[idx].substring(rxLog[idx].length() - LOG_MAX);
+}
+
+// Gửi phản hồi kèm header no-store
+void reply(int code, const String& text, const char* type = "text/plain") {
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(code, type, text);
+}
+
+// ======================= MODBUS RTU (copy nguyên phần này sang dự án khác) =======================
+enum { MB_OK = 0, MB_NO_REPLY, MB_BAD_FRAME, MB_BAD_CRC, MB_EXCEPTION };
+uint8_t mbException = 0;   // mã exception PLC trả về khi lỗi MB_EXCEPTION
+
+const char* mbErrStr(int e) {
+  switch (e) {
+    case MB_NO_REPLY:  return "Khong co phan hoi (sai baud/parity/ID/day A-B?)";
+    case MB_BAD_FRAME: return "Loi: phan hoi thieu byte";
+    case MB_BAD_CRC:   return "Loi: sai CRC";
+    case MB_EXCEPTION: return "PLC bao loi (exception)";
+    default:           return "OK";
+  }
+}
+
+uint16_t crc16(const uint8_t* buf, size_t len) {
   uint16_t crc = 0xFFFF;
   for (size_t i = 0; i < len; i++) {
     crc ^= buf[i];
-    for (uint8_t j = 0; j < 8; j++)
-      crc = (crc & 1) ? (crc >> 1) ^ 0xA001 : crc >> 1;
+    for (uint8_t j = 0; j < 8; j++) crc = (crc & 1) ? (crc >> 1) ^ 0xA001 : crc >> 1;
   }
   return crc;
 }
 
-String hexStr(const uint8_t *b, size_t n) {
+String hexStr(const uint8_t* b, size_t n) {
   String s; char t[4];
   for (size_t i = 0; i < n; i++) { snprintf(t, sizeof(t), "%02X ", b[i]); s += t; }
   s.trim();
   return s;
 }
 
-size_t mbTransact(HardwareSerial &p, const uint8_t *tx, size_t txLen, uint8_t *rx, size_t rxMax) {
+// Gửi 1 khung rồi gom phản hồi
+size_t mbTransact(HardwareSerial& p, const uint8_t* tx, size_t txLen, uint8_t* rx, size_t rxMax) {
   while (p.available()) p.read();
   p.write(tx, txLen);
   p.flush();
   size_t n = 0;
   unsigned long t = millis();
-  while (millis() - t < MB_FIRST_TO && n == 0) {
+  while (millis() - t < MB_FIRST_TO && n == 0)
     if (p.available()) { rx[n++] = p.read(); t = millis(); }
-  }
-  while (n > 0 && millis() - t < MB_GAP_TO && n < rxMax) {
+  while (n > 0 && millis() - t < MB_GAP_TO && n < rxMax)
     if (p.available()) { rx[n++] = p.read(); t = millis(); }
-  }
   return n;
 }
 
-// true = là lệnh Modbus (d100,100 | d120 | d120:5), log chứa kết quả
-bool modbusCommand(HardwareSerial &p, String s, String &log) {
+// Hàm lõi: dựng khung 8 byte (ID, fn, addr, val, CRC), gửi, kiểm tra CRC + exception
+int mbExchange(int port, uint8_t fn, uint16_t addr, uint16_t val, uint8_t* rx, size_t& n, String* log = nullptr) {
+  uint8_t tx[8] = {SLAVE_ID, fn, (uint8_t)(addr >> 8), (uint8_t)addr, (uint8_t)(val >> 8), (uint8_t)val};
+  uint16_t c = crc16(tx, 6);
+  tx[6] = c & 0xFF; tx[7] = c >> 8;
+  if (log) *log += "TX: " + hexStr(tx, 8) + "\n";
+  n = mbTransact(*ports[port], tx, 8, rx, MB_RX_MAX);
+  if (n == 0) return MB_NO_REPLY;
+  if (log) *log += "RX: " + hexStr(rx, n) + "\n";
+  if (n < 5) return MB_BAD_FRAME;
+  if (crc16(rx, n - 2) != (uint16_t)(rx[n - 2] | (rx[n - 1] << 8))) return MB_BAD_CRC;
+  if (rx[1] & 0x80) { mbException = rx[2]; return MB_EXCEPTION; }
+  return MB_OK;
+}
+
+// Đọc count thanh ghi D (lệnh 03) -> out[count]
+int mbReadD(int port, uint16_t d, uint16_t count, uint16_t* out, String* log = nullptr) {
+  uint8_t rx[MB_RX_MAX]; size_t n;
+  int e = mbExchange(port, 0x03, d + D_OFFSET, count, rx, n, log);
+  if (e) return e;
+  if (n < 5u + count * 2) return MB_BAD_FRAME;
+  for (uint16_t i = 0; i < count; i++) out[i] = (rx[3 + i * 2] << 8) | rx[4 + i * 2];
+  return MB_OK;
+}
+
+// Ghi 1 thanh ghi D (lệnh 06)
+int mbWriteD(int port, uint16_t d, uint16_t val, String* log = nullptr) {
+  uint8_t rx[MB_RX_MAX]; size_t n;
+  int e = mbExchange(port, 0x06, d + D_OFFSET, val, rx, n, log);
+  return e ? e : (n >= 8 ? MB_OK : MB_BAD_FRAME);
+}
+
+// Đọc count bit M (lệnh 01) -> out[i] = 0/1
+int mbReadM(int port, uint16_t m, uint16_t count, uint8_t* out, String* log = nullptr) {
+  uint8_t rx[MB_RX_MAX]; size_t n;
+  int e = mbExchange(port, 0x01, m, count, rx, n, log);
+  if (e) return e;
+  if (n < 5u + (count + 7) / 8) return MB_BAD_FRAME;
+  for (uint16_t i = 0; i < count; i++) out[i] = (rx[3 + i / 8] >> (i % 8)) & 1;
+  return MB_OK;
+}
+
+// Ghi 1 bit M (lệnh 05)
+int mbWriteM(int port, uint16_t m, bool on, String* log = nullptr) {
+  uint8_t rx[MB_RX_MAX]; size_t n;
+  int e = mbExchange(port, 0x05, m, on ? 0xFF00 : 0x0000, rx, n, log);
+  return e ? e : (n >= 8 ? MB_OK : MB_BAD_FRAME);
+}
+
+// ---- 4 hàm dùng nhanh (cổng PLC_PORT) ----
+long readD(uint16_t d)              { uint16_t v; return mbReadD(PLC_PORT, d, 1, &v) == MB_OK ? v : -1; }
+bool writeD(uint16_t d, uint16_t v) { return mbWriteD(PLC_PORT, d, v) == MB_OK; }
+int  readM(uint16_t m)              { uint8_t b; return mbReadM(PLC_PORT, m, 1, &b) == MB_OK ? b : -1; }
+bool writeM(uint16_t m, bool on)    { return mbWriteM(PLC_PORT, m, on) == MB_OK; }
+
+// Phân tích lệnh gõ tay: d100,100 | d120 | d120:5 | m400,1 | m300 | m300:8
+// true = là lệnh Modbus (kết quả nằm trong log)
+bool modbusCommand(int port, String s, String& log) {
   s.trim(); s.toLowerCase();
-  if (s.length() < 2 || s[0] != 'd' || !isDigit(s[1])) return false;
+  if (s.length() < 2 || (s[0] != 'd' && s[0] != 'm') || !isDigit(s[1])) return false;
 
-  uint8_t tx[8], rx[64];
-  uint16_t addr, val = 0, count = 1;
-  bool isWrite;
-  int comma = s.indexOf(',');
-  int colon = s.indexOf(':');
+  bool isM = (s[0] == 'm');
+  char tag = isM ? 'M' : 'D';
+  int comma = s.indexOf(','), colon = s.indexOf(':');
+  int e;
 
-  if (comma > 0) {
-    isWrite = true;
-    addr = s.substring(1, comma).toInt() + D_OFFSET;
-    val  = (uint16_t)s.substring(comma + 1).toInt();
-  } else {
-    isWrite = false;
-    if (colon > 0) {
-      addr  = s.substring(1, colon).toInt() + D_OFFSET;
-      count = s.substring(colon + 1).toInt();
-      if (count < 1 || count > 20) { log = "Loi: so thanh ghi 1..20\n"; return true; }
+  if (comma > 0) {                                   // ----- GHI -----
+    uint16_t addr = s.substring(1, comma).toInt();
+    long v = s.substring(comma + 1).toInt();
+    e = isM ? mbWriteM(port, addr, v != 0, &log) : mbWriteD(port, addr, (uint16_t)v, &log);
+    if (e == MB_OK) log += String("OK: ") + tag + addr + " = " + (isM ? (v != 0) : v) + "\n";
+  } else {                                           // ----- ĐỌC -----
+    uint16_t addr = s.substring(1, colon > 0 ? colon : s.length()).toInt();
+    int count = colon > 0 ? s.substring(colon + 1).toInt() : 1;
+    int maxN = isM ? 64 : 20;
+    if (count < 1 || count > maxN) { log = "Loi: so luong 1.." + String(maxN) + "\n"; return true; }
+    if (isM) {
+      uint8_t b[64];
+      e = mbReadM(port, addr, count, b, &log);
+      if (e == MB_OK) for (int i = 0; i < count; i++) log += "M" + String(addr + i) + " = " + String(b[i]) + "\n";
     } else {
-      addr = s.substring(1).toInt() + D_OFFSET;
+      uint16_t v[20];
+      e = mbReadD(port, addr, count, v, &log);
+      if (e == MB_OK) for (int i = 0; i < count; i++) log += "D" + String(addr + i) + " = " + String(v[i]) + "\n";
     }
   }
-
-  uint16_t f = isWrite ? val : count;
-  tx[0] = SLAVE_ID; tx[1] = isWrite ? 0x06 : 0x03;
-  tx[2] = addr >> 8; tx[3] = addr & 0xFF;
-  tx[4] = f >> 8;    tx[5] = f & 0xFF;
-  uint16_t crc = crc16(tx, 6);
-  tx[6] = crc & 0xFF; tx[7] = crc >> 8;
-
-  log = "TX: " + hexStr(tx, 8) + "\n";
-  size_t n = mbTransact(p, tx, 8, rx, sizeof(rx));
-  if (n == 0) { log += "Khong co phan hoi (sai baud/parity/ID/day A-B?)\n"; return true; }
-  log += "RX: " + hexStr(rx, n) + "\n";
-
-  if (n < 5 || crc16(rx, n - 2) != (uint16_t)(rx[n - 2] | (rx[n - 1] << 8))) {
-    log += "Loi: sai CRC hoac thieu byte\n"; return true;
+  if (e != MB_OK) {
+    log += mbErrStr(e);
+    if (e == MB_EXCEPTION) log += " = " + String(mbException);
+    log += "\n";
   }
-  if (rx[1] & 0x80) { log += "PLC bao loi, exception = " + String(rx[2]) + "\n"; return true; }
-
-  if (isWrite) {
-    log += "OK: D" + String(addr - D_OFFSET) + " = " + String(val) + "\n";
-  } else {
-    for (uint16_t i = 0; i < count; i++) {
-      uint16_t v = (rx[3 + i * 2] << 8) | rx[4 + i * 2];
-      log += "D" + String(addr - D_OFFSET + i) + " = " + String(v) + "\n";
-    }
-  }
-  return true;
-}
-
-// Ghi val vào D<d>. Trả về true nếu PLC trả lời OK
-bool mbWriteD(int port, uint16_t d, uint16_t val) {
-  String log;
-  modbusCommand(*ports[port], "d" + String(d) + "," + String(val), log);
-  return log.indexOf("OK:") >= 0;
-}
-
-// Đọc D<d> vào biến val. Trả về true nếu đọc được
-bool mbReadD(int port, uint16_t d, uint16_t &val) {
-  uint8_t tx[8], rx[16];
-  uint16_t addr = d + D_OFFSET;
-  tx[0] = SLAVE_ID; tx[1] = 0x03;
-  tx[2] = addr >> 8; tx[3] = addr & 0xFF;
-  tx[4] = 0;         tx[5] = 1;
-  uint16_t crc = crc16(tx, 6);
-  tx[6] = crc & 0xFF; tx[7] = crc >> 8;
-
-  size_t n = mbTransact(*ports[port], tx, 8, rx, sizeof(rx));
-  if (n < 7) return false;
-  if (crc16(rx, n - 2) != (uint16_t)(rx[n - 2] | (rx[n - 1] << 8))) return false;
-  if (rx[1] & 0x80) return false;
-  val = (rx[3] << 8) | rx[4];
   return true;
 }
 
 // ======================= RS485 =======================
 void rs485Send(int idx, const String& msg) {
   String log;
-  if (modbusCommand(*ports[idx], msg, log)) {      // lệnh dạng d100,100
+  if (modbusCommand(idx, msg, log)) {
     txCount[idx] += 8;
-    rxLog[idx] += log;
-    if (rxLog[idx].length() > LOG_MAX)
-      rxLog[idx] = rxLog[idx].substring(rxLog[idx].length() - LOG_MAX);
+    appendLog(idx, log);
     Serial.printf("[RS485-%d] MODBUS:\n%s", idx + 1, log.c_str());
     return;
   }
-  ports[idx]->print(msg);                          // text thường như cũ
+  ports[idx]->print(msg);                            // text thường
   ports[idx]->flush();
   txCount[idx] += msg.length();
   Serial.printf("[RS485-%d] TX: %s\n", idx + 1, msg.c_str());
@@ -342,112 +430,112 @@ void rs485Begin(int idx) {
 }
 
 // ======================= HANDLER WEB =======================
-void handleRoot() {
-  server.send_P(200, "text/html", PAGE);
-}
+void handleRoot() { server.send_P(200, "text/html", PAGE); }
 
 // /set?pin=9&state=1
 void handleSet() {
-  if (!server.hasArg("pin") || !server.hasArg("state")) {
-    server.send(400, "text/plain", "Thieu tham so pin/state");
-    return;
-  }
+  if (!server.hasArg("pin") || !server.hasArg("state")) return reply(400, "Thieu tham so pin/state");
   int pin = server.arg("pin").toInt();
   int state = server.arg("state").toInt();
-  if (!isOutPin(pin)) {
-    server.send(400, "text/plain", "Chan khong thuoc nhom OUT");
-    return;
-  }
-  digitalWrite(pin, state ? HIGH : LOW);
+  if (!isOutPin(pin)) return reply(400, "Chan khong thuoc nhom OUT");
+  setOut(pin, state != 0);
   Serial.printf("Web: GPIO%d = %d\n", pin, state ? 1 : 0);
-  server.send(200, "text/plain", "OK");
+  reply(200, "OK");
+}
+
+// /plc?t=d&addr=100            -> đọc D100
+// /plc?t=m&addr=400&val=1      -> ghi M400 = 1
+void handlePlc() {
+  bool isM = server.arg("t") == "m";
+  int a = server.arg("addr").toInt();
+  long v = server.arg("val").toInt();
+  String name = String(isM ? "M" : "D") + a;
+  long x;
+  if (server.hasArg("val")) x = (isM ? writeM(a, v != 0) : writeD(a, v)) ? v : -1;
+  else                      x = isM ? readM(a) : readD(a);
+  reply(200, x < 0 ? name + ": LOI" : name + " = " + x);
 }
 
 // /rs485/send?port=1&data=d100,100
 void handleRsSend() {
   int port = server.arg("port").toInt();
-  if (port < 1 || port > NUM_PORTS) {
-    server.send(400, "text/plain", "Cong khong hop le (1..2)");
-    return;
-  }
+  if (port < 1 || port > NUM_PORTS) return reply(400, "Cong khong hop le (1..2)");
   rs485Send(port - 1, server.arg("data"));
-  server.send(200, "text/plain", "OK");
+  reply(200, "OK");
 }
 
 // /rs485/baud?port=1&baud=115200
 void handleRsBaud() {
   int port = server.arg("port").toInt();
   long baud = server.arg("baud").toInt();
-  if (port < 1 || port > NUM_PORTS || baud < 1200 || baud > 921600) {
-    server.send(400, "text/plain", "Cong (1..2) hoac baud (1200..921600) khong hop le");
-    return;
-  }
+  if (port < 1 || port > NUM_PORTS || baud < 1200 || baud > 921600)
+    return reply(400, "Cong (1..2) hoac baud (1200..921600) khong hop le");
   rsBaud[port - 1] = baud;
   rs485Begin(port - 1);
   Serial.printf("RS485-%d: baud = %ld\n", port, baud);
-  server.send(200, "text/plain", "Da dat baud " + String(baud) + " cho cong " + String(port));
+  reply(200, "Da dat baud " + String(baud) + " cho cong " + String(port));
 }
 
 // /rs485/clear?port=1
 void handleRsClear() {
   int port = server.arg("port").toInt();
   if (port >= 1 && port <= NUM_PORTS) rxLog[port - 1] = "";
-  server.send(200, "text/plain", "OK");
+  reply(200, "OK");
 }
 
 // /status -> JSON
 void handleStatus() {
   String j;
-  j.reserve(2600);
+  j.reserve(2500);
   j += "{\"up\":" + String(millis() / 1000);
   j += ",\"rssi\":" + String(WiFi.RSSI());
-
+  j += ",\"time\":\"" + timeStr() + "\"";
+  j += ",\"epoch\":" + String((unsigned long)time(nullptr));
   j += ",\"adc\":[";
-  for (int i = 0; i < NUM_ADC; i++) {
-    if (i) j += ",";
-    j += "{\"p\":" + String(ADC_PINS[i]) + ",\"mv\":" + String(analogReadMilliVolts(ADC_PINS[i])) + "}";
-  }
+  for (int i = 0; i < NUM_ADC; i++)
+    j += String(i ? "," : "") + "{\"p\":" + ADC_PINS[i] + ",\"mv\":" + analogReadMilliVolts(ADC_PINS[i]) + "}";
   j += "],\"in\":[";
-  for (int i = 0; i < NUM_IN; i++) {
-    if (i) j += ",";
-    j += "{\"p\":" + String(IN_PINS[i]) + ",\"v\":" + String(digitalRead(IN_PINS[i])) + "}";
-  }
+  for (int i = 0; i < NUM_IN; i++)
+    j += String(i ? "," : "") + "{\"p\":" + IN_PINS[i] + ",\"v\":" + digitalRead(IN_PINS[i]) + "}";
   j += "],\"out\":[";
-  for (int i = 0; i < NUM_OUT; i++) {
-    if (i) j += ",";
-    j += "{\"p\":" + String(OUT_PINS[i]) + ",\"v\":" + String(digitalRead(OUT_PINS[i])) + "}";
-  }
+  for (int i = 0; i < NUM_OUT; i++)
+    j += String(i ? "," : "") + "{\"p\":" + OUT_PINS[i] + ",\"v\":" + (outLvl[i] ? 1 : 0) + "}";
   j += "],\"rs\":[";
   for (int i = 0; i < NUM_PORTS; i++) {
-    if (i) j += ",";
-    j += "{\"tx\":" + String(TX_PIN[i]) + ",\"rx\":" + String(RX_PIN[i]);
-    j += ",\"baud\":" + String(rsBaud[i]);
+    j += String(i ? "," : "") + "{\"tx\":" + TX_PIN[i] + ",\"rx\":" + RX_PIN[i] + ",\"baud\":" + rsBaud[i];
     j += ",\"rxn\":" + String(rxCount[i]) + ",\"txn\":" + String(txCount[i]);
     j += ",\"log\":\"" + jsonEscape(rxLog[i]) + "\"}";
   }
   j += "]}";
-  server.send(200, "application/json", j);
+  reply(200, j, "application/json");
 }
 
-// ======================= WIFI =======================
+// ======================= WIFI / OTA =======================
 void connectWiFi(unsigned long timeoutMs) {
   Serial.printf("Dang ket noi WiFi \"%s\"", WIFI_SSID);
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
-    delay(500);
-    Serial.print(".");
-  }
+  while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) { delay(500); Serial.print("."); }
   if (WiFi.status() == WL_CONNECTED) {
     wifiWasConnected = true;
-    Serial.println("\nWiFi OK!");
-    Serial.print("Mo trinh duyet: http://");
+    Serial.print("\nWiFi OK! http://");
     Serial.println(WiFi.localIP());
   } else {
     Serial.println("\nChua ket noi duoc WiFi (se tu thu lai). Kiem tra ten/mat khau, song 2.4GHz.");
   }
+}
+
+void startOTA() {
+  ArduinoOTA.setHostname(OTA_HOST);
+  ArduinoOTA.setPassword(OTA_PASS);
+  ArduinoOTA.onStart([]() { otaBusy = true;  Serial.println("OTA: bat dau nap..."); });
+  ArduinoOTA.onEnd([]()   { otaBusy = false; Serial.println("OTA: xong, khoi dong lai"); });
+  ArduinoOTA.onError([](ota_error_t e) { otaBusy = false; Serial.printf("OTA loi: %u\n", e); });
+  ArduinoOTA.begin();
+  otaStarted = true;
+  Serial.printf("OTA san sang: %s (%s)\n", OTA_HOST, WiFi.localIP().toString().c_str());
 }
 
 // ======================= LỆNH SERIAL (UART0) =======================
@@ -458,122 +546,42 @@ void handleSerialCmd() {
   if (line.length() == 0) return;
 
   if (line.equalsIgnoreCase("info")) {
-    Serial.printf("WiFi: %s  IP: %s  RSSI: %d dBm\n",
+    Serial.printf("WiFi: %s  IP: %s  RSSI: %d dBm  Gio: %s\n",
                   WiFi.status() == WL_CONNECTED ? "OK" : "chua ket noi",
-                  WiFi.localIP().toString().c_str(), WiFi.RSSI());
+                  WiFi.localIP().toString().c_str(), WiFi.RSSI(), timeStr().c_str());
+    Serial.printf("PLC: %s  D300=%u\n", plcOk ? "OK" : "mat ket noi", d300);
     return;
   }
-
-  // "1:hello" hoặc "1:d100,100" -> gửi RS485
-  if (line.length() >= 2 && line.charAt(1) == ':') {
+  if (line.length() >= 2 && line.charAt(1) == ':') {          // "1:d100,100" | "1:m400,1" | "1:hello"
     int port = line.substring(0, 1).toInt();
     if (port >= 1 && port <= NUM_PORTS) rs485Send(port - 1, line.substring(2));
     else Serial.println("Loi: cong RS485 chi tu 1 den 2");
     return;
   }
-
-  // "9,1" -> bật/tắt chân OUT
-  int comma = line.indexOf(',');
+  int comma = line.indexOf(',');                               // "9,1" -> bật/tắt chân OUT
   if (comma > 0) {
     int pin = line.substring(0, comma).toInt();
     int state = line.substring(comma + 1).toInt();
-    if (isOutPin(pin)) {
-      digitalWrite(pin, state ? HIGH : LOW);
-      Serial.printf("OK: GPIO%d = %d\n", pin, state ? 1 : 0);
-    } else {
-      Serial.printf("Loi: GPIO%d khong thuoc nhom OUT\n", pin);
-    }
+    if (isOutPin(pin)) { setOut(pin, state != 0); Serial.printf("OK: GPIO%d = %d\n", pin, state ? 1 : 0); }
+    else Serial.printf("Loi: GPIO%d khong thuoc nhom OUT\n", pin);
     return;
   }
-  Serial.println("Lenh khong hop le. Vi du: 1:hello | 1:d100,100 | 9,1 | info");
+  Serial.println("Lenh khong hop le. Vi du: 1:hello | 1:d100,100 | 1:m400,1 | 9,1 | info");
 }
 
-// ======================= SETUP / LOOP =======================
-void setup() {
-  Serial.begin(115200);                       // UART0 qua CH343
-  delay(2000);
-  Serial.println("\n===== ESP32-S3 FULL =====");
-
-  for (int i = 0; i < NUM_IN; i++) pinMode(IN_PINS[i], INPUT_PULLUP);
-  for (int i = 0; i < NUM_OUT; i++) {
-    pinMode(OUT_PINS[i], OUTPUT);
-    digitalWrite(OUT_PINS[i], LOW);
-  }
-
-  analogReadResolution(12);
-  analogSetAttenuation(ADC_11db);             // đọc được khoảng 0 - 3.1V
-  for (int i = 0; i < NUM_ADC; i++) pinMode(ADC_PINS[i], INPUT);
-
+// ======================= TÁC VỤ =======================
+void rxTask() {
   for (int i = 0; i < NUM_PORTS; i++) {
-    ports[i]->begin(rsBaud[i], MB_SERIAL_CFG, RX_PIN[i], TX_PIN[i]);
-    Serial.printf("RS485-%d: UART%d TX=%d RX=%d @%lu\n", i + 1, i + 1, TX_PIN[i], RX_PIN[i], rsBaud[i]);
+    if (!ports[i]->available()) continue;
+    String chunk;
+    while (ports[i]->available()) chunk += (char)ports[i]->read();
+    rxCount[i] += chunk.length();
+    appendLog(i, chunk);
+    Serial.printf("[RS485-%d] RX: %s\n", i + 1, chunk.c_str());
   }
-
-  connectWiFi(20000);
-
-  server.on("/", handleRoot);
-  server.on("/set", handleSet);
-  server.on("/status", handleStatus);
-  server.on("/rs485/send", handleRsSend);
-  server.on("/rs485/baud", handleRsBaud);
-  server.on("/rs485/clear", handleRsClear);
-  server.begin();
-  Serial.println("Web server da chay. Go lenh: 1:hello | 1:d100,100 | 9,1 | info");
 }
-unsigned long start = 0;   // khai báo phía trên setup()
-unsigned long t=0;
-uint16_t d300 = 0;   // giá trị D300 đọc được
-void loop() {
-  server.handleClient();
-  handleSerialCmd();
 
-    if (digitalRead(38) == 0 && start == 0) start = millis();   // nhấn nút: ghi giờ bắt đầu
-  if (start != 0){
-     t = millis() - start;   // đã qua bao nhiêu ms
-
-    if      (t < 500)  digitalWrite(9, HIGH);   // nháy 1: sáng
-    else if (t < 1000)  digitalWrite(9, LOW);    //         tắt
-    else if (t < 1500)  digitalWrite(9, HIGH);   // nháy 2: sáng
-    else if (t < 2000)  digitalWrite(9, LOW);    //         tắt
-    else if (t < 2500) digitalWrite(9, HIGH);   // nháy 3: sáng
-    else if (t < 3000) digitalWrite(9, LOW);    //         tắt
-    else if (t < 3500) digitalWrite(9, HIGH);   // nháy 4: sáng
-    else if (t < 4000) digitalWrite(9, LOW);    //         tắt
-    else if (t < 4500) digitalWrite(9, HIGH);   // nháy 5: sáng
-    else if (t < 5000) digitalWrite(9, LOW);    //         tắt
-    else if (t==5000)start = 0;                             // xong, cho phép nhấn lại
-  }
-    // Nhấn nút chân 39 -> đọc D300 (cổng 1) và lưu vào biến d300
-  if (digitalRead(39) == 0) {
-    mbReadD(0, 300, d300);
-    while (digitalRead(39) == 0);   // chờ nhả nút
-    delay(50);                      // chống rung nút
-  }
-if (d300 == 100) digitalWrite(10, HIGH);
-else if (d300!=100) digitalWrite(10,LOW);
-
-
-
-
-  // Nhấn nút chân 40 -> ghi D200 = 100 (cổng 1)
-  if (digitalRead(40) == 0) {
-    mbWriteD(0, 200, 150);
-    while (digitalRead(40) == 0);   // chờ nhả nút
-    delay(50);                      // chống rung nút
-  }
-  // Nhận dữ liệu từ các cổng RS485
-  for (int i = 0; i < NUM_PORTS; i++) {
-    if (ports[i]->available()) {
-      String chunk = "";
-      while (ports[i]->available()) chunk += (char)ports[i]->read();
-      rxCount[i] += chunk.length();
-      rxLog[i] += chunk;
-      if (rxLog[i].length() > LOG_MAX) rxLog[i] = rxLog[i].substring(rxLog[i].length() - LOG_MAX);
-      Serial.printf("[RS485-%d] RX: %s\n", i + 1, chunk.c_str());
-    }
-  }
-
-  // Tự thử nối lại WiFi nếu mất
+void wifiTask() {
   if (WiFi.status() != WL_CONNECTED) {
     if (millis() - lastWifiTry > 15000) {
       lastWifiTry = millis();
@@ -585,4 +593,70 @@ else if (d300!=100) digitalWrite(10,LOW);
     Serial.print("WiFi OK! http://");
     Serial.println(WiFi.localIP());
   }
+}
+
+// ======================= SETUP / LOOP =======================
+void setup() {
+  Serial.begin(115200);
+  delay(2000);
+  Serial.println("\n===== ESP32-S3 FULL =====");
+
+  for (int i = 0; i < NUM_IN; i++) pinMode(IN_PINS[i], INPUT_PULLUP);
+  for (int i = 0; i < NUM_OUT; i++) { pinMode(OUT_PINS[i], OUTPUT); setOut(OUT_PINS[i], false); }
+  for (auto &b : btns)
+    attachInterruptArg(digitalPinToInterrupt(b.pin), isrBtn, &b, FALLING);
+
+  analogReadResolution(12);
+  analogSetAttenuation(ADC_11db);
+  for (int i = 0; i < NUM_ADC; i++) pinMode(ADC_PINS[i], INPUT);
+
+  for (int i = 0; i < NUM_PORTS; i++) {
+    ports[i]->begin(rsBaud[i], MB_SERIAL_CFG, RX_PIN[i], TX_PIN[i]);
+    Serial.printf("RS485-%d: UART%d TX=%d RX=%d @%lu\n", i + 1, i + 1, TX_PIN[i], RX_PIN[i], rsBaud[i]);
+  }
+
+  connectWiFi(20000);
+
+  startNtp();
+  struct tm ti;
+  if (getLocalTime(&ti, 5000)) Serial.println("Da dong bo gio: " + timeStr());
+  else Serial.println("Chua lay duoc gio (se tu thu lai)");
+
+  server.on("/", handleRoot);
+  server.on("/set", handleSet);
+  server.on("/status", handleStatus);
+  server.on("/plc", handlePlc);
+  server.on("/rs485/send", handleRsSend);
+  server.on("/rs485/baud", handleRsBaud);
+  server.on("/rs485/clear", handleRsClear);
+  server.begin();
+  Serial.println("Web server da chay. Go lenh: 1:hello | 1:d100,100 | 1:m400,1 | 9,1 | info");
+}
+
+void loop() {
+  if (!otaStarted && WiFi.status() == WL_CONNECTED) startOTA();
+  if (otaStarted) ArduinoOTA.handle();
+  if (otaBusy) return;                       // đang nạp OTA thì bỏ qua mọi việc khác
+
+  server.handleClient();
+  handleSerialCmd();
+  if (WiFi.status() == WL_CONNECTED && millis() - lastNtp > NTP_RESYNC_MS) startNtp();
+
+  // ---------- THUẬT TOÁN PLC ----------
+  int m = readM(300);                        // M300 = 1 -> ghi M300 = 1 và D200 = 0
+  if (m == 1) { writeM(300, true); writeD(200, 0); }
+
+  if (readD(200) == 10) { writeD(200, 0); writeM(1, false); }   // D200 = 10 -> D200 = 0 và M1 = 0
+
+  // ---------- NÚT NHẤN (gọi bằng số chân GPIO) ----------
+  if (pressed(39)) { long v = readD(300); if (v >= 0) d300 = v; }   // nút 39: đọc D300
+  if (pressed(40)) writeD(200, 150);                                // nút 40: ghi D200 = 150
+  // if (pressed(7))  writeM(400, true);     // nút GPIO7 bật M400
+  // if (pressed(8))  writeM(400, false);    // nút GPIO8 tắt M400
+  // if (pressed(14)) writeD(201, 5);        // nút GPIO14 ghi D201 = 5
+  // if (pressed(38)) writeD(202, 0);        // nút GPIO38 ghi D202 = 0
+  // if (pressed(41)) writeM(401, true);     // nút GPIO41 bật M401
+
+  rxTask();
+  wifiTask();
 }
