@@ -68,6 +68,8 @@ unsigned long txCount[NUM_PORTS] = {0, 0};
 
 bool wifiWasConnected = false, otaStarted = false, otaBusy = false;
 unsigned long lastWifiTry = 0, lastNtp = 0;
+unsigned long lastAdcSend = 0;
+
 
 bool outLvl[7] = {};                 // trạng thái OUT (ESP tự nhớ)
 uint16_t d300 = 0;                   // D300 đọc được khi bấm nút 39
@@ -128,9 +130,16 @@ const char PAGE[] PROGMEM = R"rawliteral(
 <body>
 <h1>ESP32-S3 N16R8</h1>
 <div class="sub">Giờ ESP: <b id="clk">-</b> &nbsp;|&nbsp; Lệch so với máy tính: <b id="skew">-</b>
-  &nbsp;|&nbsp; Chạy: <b id="up">-</b> giây &nbsp;|&nbsp; WiFi RSSI: <b id="rssi">-</b> dBm</div>
+  &nbsp;|&nbsp; WiFi RSSI: <b id="rssi">-</b> dBm</div>
 <div class="grid">
   <div class="card"><h2>ADC (mV)</h2><div id="adc"></div></div>
+  <div class="card"><h2>Chip ESP32-S3</h2>
+    <div class="row"><span>Nhiệt độ chip</span><b id="temp">-</b></div>
+    <div class="row"><span>Tốc độ CPU</span><b id="cpu">-</b></div>
+    <div class="row"><span>RAM trống</span><b id="heap">-</b></div>
+    <div class="row"><span>PSRAM trống</span><b id="psram">-</b></div>
+    <div class="row"><span>Flash</span><b id="flash">-</b></div>
+  </div>
   <div class="card"><h2>Ngõ vào IN</h2><div id="ins"></div><div class="small">1 = hở (kéo lên), 0 = nối GND</div></div>
   <div class="card"><h2>Ngõ ra OUT</h2><div class="btns" id="outs"></div></div>
   <div class="card"><h2>PLC: đọc / ghi D, M</h2>
@@ -200,8 +209,12 @@ function update() {
     el('skew').textContent = d.epoch > 1000000000
       ? ((diff => (diff > 0 ? '+' : '') + diff + ' giây')(Math.round(Date.now() / 1000 - d.epoch)))
       : 'ESP chưa có giờ';
-    el('up').textContent = d.up;
     el('rssi').textContent = d.rssi;
+    el('temp').textContent = d.temp.toFixed(1) + ' °C';
+    el('cpu').textContent = d.cpu + ' MHz';
+    el('heap').textContent = Math.round(d.heap / 1024) + ' KB';
+    el('psram').textContent = (d.psram / 1048576).toFixed(2) + ' MB';
+    el('flash').textContent = d.flash + ' MB';
     d.adc.forEach(a => el('adc' + a.p).textContent = a.mv + ' mV');
     d.in.forEach(a => el('in' + a.p).textContent = a.v);
     d.out.forEach(a => { outState[a.p] = a.v; showOut(a.p, a.v); });
@@ -251,7 +264,7 @@ String timeStr() {
   struct tm ti;
   if (!getLocalTime(&ti, 0)) return "chua co gio";
   char b[24];
-  strftime(b, sizeof(b), "%d/%m/%Y %H:%M:%S", &ti);
+  strftime(b, sizeof(b), "%d/%m/%Y %H:%M", &ti);
   return String(b);
 }
 
@@ -491,6 +504,11 @@ void handleStatus() {
   j += ",\"rssi\":" + String(WiFi.RSSI());
   j += ",\"time\":\"" + timeStr() + "\"";
   j += ",\"epoch\":" + String((unsigned long)time(nullptr));
+  j += ",\"temp\":" + String(temperatureRead(), 1);
+  j += ",\"cpu\":" + String(getCpuFrequencyMhz());
+  j += ",\"heap\":" + String(ESP.getFreeHeap());
+  j += ",\"psram\":" + String(ESP.getFreePsram());
+  j += ",\"flash\":" + String(ESP.getFlashChipSize() / 1048576);
   j += ",\"adc\":[";
   for (int i = 0; i < NUM_ADC; i++)
     j += String(i ? "," : "") + "{\"p\":" + ADC_PINS[i] + ",\"mv\":" + analogReadMilliVolts(ADC_PINS[i]) + "}";
@@ -594,7 +612,27 @@ void wifiTask() {
     Serial.println(WiFi.localIP());
   }
 }
+void sendADC1_RS485() {
+  // ===== CẤU HÌNH =====
+  const uint16_t START_D = 100;  // D bắt đầu ghi
+  const int PORT = 0;            // 0 = RS485 cổng 1
+  const unsigned long INTERVAL = 300; // Thời gian gửi (ms)
 
+  // ===== XỬ LÝ =====
+  static unsigned long lastSend = 0;
+  static uint8_t index = 0;
+
+  if (millis() - lastSend < INTERVAL) return;
+  lastSend = millis();
+
+  uint16_t value = analogReadMilliVolts(ADC_PINS[index]);
+
+  int e = mbWriteD(PORT, START_D + index, value);
+
+
+
+  index = (index + 1) % NUM_ADC;
+}
 // ======================= SETUP / LOOP =======================
 void setup() {
   Serial.begin(115200);
@@ -646,7 +684,7 @@ void loop() {
   //int m = readM(300);                        // M300 = 1 -> ghi M300 = 1 và D200 = 0
  // if (m == 1) { writeM(300, true); writeD(200, 0); }
 
-  if (readD(200) == 10) { writeD(200, 0); writeM(1, false); }   // D200 = 10 -> D200 = 0 và M1 = 0
+  if (readD(200) == 10) { writeD(201, 10); writeM(1, false); }   // D200 = 10 -> D200 = 0 và M1 = 0
 
   // ---------- NÚT NHẤN (gọi bằng số chân GPIO) ----------
   if (pressed(39)) { long v = readD(300);  d300 = v; }   // nút 39: đọc D300
@@ -656,7 +694,13 @@ void loop() {
   // if (pressed(14)) writeD(201, 5);        // nút GPIO14 ghi D201 = 5
   // if (pressed(38)) writeD(202, 0);        // nút GPIO38 ghi D202 = 0
   // if (pressed(41)) writeM(401, true);     // nút GPIO41 bật M401
+if (millis() - lastAdcSend >= 300) {
+  lastAdcSend = millis();
+  sendADC1_RS485();
+
+}
 
   rxTask();
   wifiTask();
+  delay(5);
 }
