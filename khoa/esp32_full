@@ -643,13 +643,13 @@ void loop() {
   if (WiFi.status() == WL_CONNECTED && millis() - lastNtp > NTP_RESYNC_MS) startNtp();
 
   // ---------- THUẬT TOÁN PLC ----------
-  int m = readM(300);                        // M300 = 1 -> ghi M300 = 1 và D200 = 0
-  if (m == 1) { writeM(300, true); writeD(200, 0); }
+  //int m = readM(300);                        // M300 = 1 -> ghi M300 = 1 và D200 = 0
+ // if (m == 1) { writeM(300, true); writeD(200, 0); }
 
   if (readD(200) == 10) { writeD(200, 0); writeM(1, false); }   // D200 = 10 -> D200 = 0 và M1 = 0
 
   // ---------- NÚT NHẤN (gọi bằng số chân GPIO) ----------
-  if (pressed(39)) { long v = readD(300); if (v >= 0) d300 = v; }   // nút 39: đọc D300
+  if (pressed(39)) { long v = readD(300);  d300 = v; }   // nút 39: đọc D300
   if (pressed(40)) writeD(200, 150);                                // nút 40: ghi D200 = 150
   // if (pressed(7))  writeM(400, true);     // nút GPIO7 bật M400
   // if (pressed(8))  writeM(400, false);    // nút GPIO8 tắt M400
