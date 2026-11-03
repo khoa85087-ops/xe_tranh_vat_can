@@ -1,0 +1,18 @@
+static unsigned long last2 = 0;
+static unsigned long last1 = 0;
+
+if (millis() - last1 >= 50) {
+  last1 = millis();
+
+  if (digitalRead(38) == 0||count!=0) {
+    if (millis() - last2>= 300) {
+      last2 = millis();
+      digitalWrite(12, !digitalRead(12));
+      count++;
+      Serial.println(count);
+      if (count==10){
+        count=0;
+      }
+    }
+  }
+}
