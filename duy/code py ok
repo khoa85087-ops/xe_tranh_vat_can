@@ -1,0 +1,424 @@
+import socket
+import struct
+import threading
+import time
+from typing import Optional
+
+import cv2
+import numpy as np
+import requests
+from ultralytics import YOLO
+
+# ============================================================
+# SETTINGS
+# ============================================================
+ESP32_IP = "10.125.196.39"
+CAMERA_PORT = 3333
+COMMAND_URL = f"http://{ESP32_IP}/command"
+
+MAX_JPEG_SIZE = 1_000_000
+YOLO_MODEL = "best.pt"
+YOLO_CONFIDENCE = 0.5
+YOLO_IMAGE_SIZE = 320
+HEARTBEAT_SECONDS = 1          # gửi lại lệnh cũ mỗi 0.3s
+PERSON_LOST_HOLD_SECONDS = 0.6
+DISPLAY_WIDTH = 960
+DISPLAY_HEIGHT = 720
+
+# Sửa theo dòng "Classes: {...}" in ra khi chạy
+FRONT_NAMES = {"front", "truoc", "trước", "mat", "mặt",
+               "nguoi_truoc", "person_front"}
+BACK_NAMES = {"back", "sau", "lung", "lưng",
+              "nguoi_sau", "person_back"}
+
+COMMAND_TO_STM32_CODE = {
+    "LINE_FOLLOW": "A",
+    "FORWARD": "1",
+    "RIGHT_SMALL": "2",
+    "RIGHT_MEDIUM": "3",
+    "RIGHT_LARGE": "4",
+    "LEFT_SMALL": "5",
+    "LEFT_MEDIUM": "6",
+    "LEFT_LARGE": "7",
+    "BACKWARD": "8",
+    "STOP": "0",
+}
+
+
+def get_facing(object_name: str) -> str:
+    name = object_name.strip().lower()
+    if name in FRONT_NAMES or "front" in name or "truoc" in name:
+        return "front"
+    if name in BACK_NAMES or "back" in name or "sau" in name:
+        return "back"
+    return "unknown"
+
+
+# ============================================================
+# CAMERA: đọc theo khối + thread chỉ giữ frame mới nhất
+# ============================================================
+class StreamReader:
+    """Đọc socket theo khối lớn, tách frame 'FRAM' + size + JPEG."""
+
+    def __init__(self, sock: socket.socket):
+        self.sock = sock
+        self.buf = bytearray()
+
+    def _fill(self) -> bool:
+        try:
+            data = self.sock.recv(65536)
+        except (socket.timeout, OSError):
+            return False
+        if not data:
+            return False
+        self.buf.extend(data)
+        return True
+
+    def read_frame(self) -> Optional[bytes]:
+        while True:
+            idx = self.buf.find(b"FRAM")
+            if idx >= 0:
+                if len(self.buf) >= idx + 8:
+                    size = struct.unpack_from("<I", self.buf, idx + 4)[0]
+                    if size <= 0 or size > MAX_JPEG_SIZE:
+                        print(f"[CAMERA] Invalid JPEG size: {size}")
+                        del self.buf[: idx + 4]
+                        continue
+                    end = idx + 8 + size
+                    if len(self.buf) >= end:
+                        jpg = bytes(self.buf[idx + 8:end])
+                        del self.buf[:end]
+                        return jpg
+            elif len(self.buf) > 3:
+                del self.buf[:-3]
+            if not self._fill():
+                return None
+
+
+class FrameGrabber(threading.Thread):
+    """Đọc camera liên tục, chỉ giữ frame mới nhất -> không bị dồn delay."""
+
+    def __init__(self, sock: socket.socket):
+        super().__init__(daemon=True)
+        self.reader = StreamReader(sock)
+        self.lock = threading.Lock()
+        self.latest: Optional[bytes] = None
+        self.counter = 0
+        self.failed = False
+        self.running = True
+
+    def run(self):
+        while self.running:
+            jpg = self.reader.read_frame()
+            if jpg is None:
+                self.failed = True
+                return
+            with self.lock:
+                self.latest = jpg
+                self.counter += 1
+
+    def get_latest(self, last_counter: int):
+        with self.lock:
+            if self.counter == last_counter:
+                return None, last_counter
+            return self.latest, self.counter
+
+
+# ============================================================
+# COMMAND: gửi HTTP ở thread riêng, không chặn video
+# ============================================================
+def send_command(command: str, source: str, detection: Optional[dict] = None) -> bool:
+    if command not in COMMAND_TO_STM32_CODE:
+        print(f"[COMMAND] Refusing unknown command: {command}")
+        return False
+
+    payload = {"type": "command", "command": command, "source": source}
+    if detection is not None:
+        payload.update({
+            "object": detection["object"],
+            "facing": detection["facing"],
+            "confidence": round(float(detection["confidence"]), 2),
+            "position": detection["position"],
+            "center_x": int(detection["center_x"]),
+        })
+
+    try:
+        response = requests.post(
+            COMMAND_URL, json=payload, timeout=(2.0, 2.0),
+            headers={"Connection": "close"},
+        )
+        if response.status_code != 200:
+            print(f"[HTTP ERROR] {response.status_code}: {response.text}")
+            return False
+        try:
+            result = response.json()
+        except ValueError:
+            print("[HTTP ERROR] ESP32 response was not JSON.")
+            return False
+        if result.get("status") != "OK":
+            print(f"[HTTP ERROR] ESP32 rejected command: {result}")
+            return False
+        return True
+    except requests.RequestException as exc:
+        print(f"[HTTP ERROR] Could not send {command}: {exc}")
+        return False
+
+
+class CommandSender(threading.Thread):
+    """Gửi ngay khi lệnh/nhãn đổi, còn lại gửi nhịp tim."""
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.lock = threading.Lock()
+        self.pending = ("STOP", "SAFETY", None)
+        self.dirty = True
+        self.running = True
+        self.last_sent_cmd = None
+        self.last_sent_time = 0.0
+
+    def set(self, command: str, source: str, detail: Optional[dict] = None):
+        with self.lock:
+            old_cmd, old_src, old_detail = self.pending
+            old_face = old_detail["facing"] if old_detail else None
+            new_face = detail["facing"] if detail else None
+            if command != old_cmd or new_face != old_face or source != old_src:
+                self.dirty = True
+            self.pending = (command, source, detail)
+
+    def run(self):
+        while self.running:
+            with self.lock:
+                command, source, detail = self.pending
+                dirty = self.dirty
+                self.dirty = False
+
+            if dirty or time.time() - self.last_sent_time >= HEARTBEAT_SECONDS:
+                ok = send_command(command, source, detail)
+                self.last_sent_time = time.time()
+                if ok:
+                    if command != self.last_sent_cmd:
+                        extra = f" ({detail['facing']})" if detail else ""
+                        print(f"[HTTP JSON] {command}{extra} -> STM32 byte "
+                              f"'{COMMAND_TO_STM32_CODE[command]}'")
+                    self.last_sent_cmd = command
+                else:
+                    self.last_sent_cmd = None
+                    time.sleep(0.3)  # ESP đang bận, đừng dồn thêm
+            else:
+                time.sleep(0.02)
+
+    def stop(self):
+        self.running = False
+
+
+def choose_person_override(detections: list, frame_width: int):
+    """Model chỉ có nhãn trước/sau nên mọi detection đều là người."""
+    if not detections:
+        return "LINE_FOLLOW", None
+
+    target = max(detections, key=lambda d: d["confidence"])
+    offset = (target["center_x"] - frame_width / 2.0) / (frame_width / 2.0)
+    abs_offset = abs(offset)
+
+    if abs_offset <= 0.15:
+        return "STOP", target
+
+    if abs_offset <= 0.35:
+        level = "LARGE"
+    elif abs_offset <= 0.65:
+        level = "MEDIUM"
+    else:
+        level = "SMALL"
+
+    if offset < 0:
+        return f"RIGHT_{level}", target
+    return f"LEFT_{level}", target
+
+
+def main():
+    print("Loading YOLO model...")
+    model = YOLO(YOLO_MODEL)
+    print("YOLO loaded. Classes:", model.names)
+
+    camera_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    camera_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    camera_sock.settimeout(5)
+    try:
+        print(f"Connecting to camera {ESP32_IP}:{CAMERA_PORT}...")
+        camera_sock.connect((ESP32_IP, CAMERA_PORT))
+        print("Camera TCP connected.")
+    except OSError as exc:
+        camera_sock.close()
+        raise SystemExit(
+            f"Could not connect to camera: {exc}\n"
+            "Check ESP32-CAM power, IP and shared Wi-Fi network."
+        )
+
+    grabber = FrameGrabber(camera_sock)
+    grabber.start()
+    sender = CommandSender()
+    sender.start()
+
+    mode = "MANUAL"
+    line_follow_enabled = False
+    manual_command = "STOP"
+    last_counter = 0
+    last_person_seen = 0.0
+    held_person_command = "STOP"
+    held_detection = None
+    auto_command, target = "STOP", None
+
+    window = "ESP32-CAM + YOLO / HTTP JSON"
+    cv2.namedWindow(window, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window, DISPLAY_WIDTH, DISPLAY_HEIGHT)
+
+    print("Startup mode: MANUAL (motors stopped).")
+    print("M toggles AUTO/MANUAL. L toggles line-follow.")
+    print("MANUAL keys: W forward, 2/3/4 right, 5/6/7 left, S reverse, X stop.")
+    print("Q exits and sends STOP.")
+
+    try:
+        while True:
+            if grabber.failed:
+                print("[CAMERA] Camera stream lost; requesting STOP.")
+                break
+
+            jpg, new_counter = grabber.get_latest(last_counter)
+            key = cv2.waitKey(1) & 0xFF
+
+            if jpg is not None:
+                last_counter = new_counter
+                frame = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
+                if frame is None:
+                    print("[CAMERA] JPEG decode failed.")
+                else:
+                    height, width = frame.shape[:2]
+                    result = model(
+                        frame,
+                        imgsz=YOLO_IMAGE_SIZE,
+                        conf=YOLO_CONFIDENCE,
+                        verbose=False,
+                    )[0]
+
+                    detections = []
+                    for box in result.boxes:
+                        class_id = int(box.cls[0])
+                        object_name = str(model.names[class_id])
+                        confidence = float(box.conf[0])
+                        if confidence < YOLO_CONFIDENCE:
+                            continue
+
+                        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                        center_x = (x1 + x2) // 2
+                        center_y = (y1 + y2) // 2
+                        if center_x < width / 3:
+                            position = "left"
+                        elif center_x < 2 * width / 3:
+                            position = "center"
+                        else:
+                            position = "right"
+
+                        facing = get_facing(object_name)
+                        detections.append({
+                            "object": object_name,
+                            "facing": facing,
+                            "confidence": confidence,
+                            "position": position,
+                            "center_x": center_x,
+                            "center_y": center_y,
+                        })
+
+                        color = {"front": (0, 255, 0), "back": (0, 0, 255)}.get(
+                            facing, (255, 255, 255))
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                        cv2.putText(
+                            frame, f"{object_name} [{facing}] {confidence:.2f}",
+                            (x1, max(y1 - 8, 18)), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5, color, 2,
+                        )
+                        cv2.circle(frame, (center_x, center_y), 3, color, -1)
+
+                    auto_command, target = choose_person_override(detections, width)
+                    now = time.time()
+
+                    # Giữ lệnh một chút khi YOLO lỡ mất 1 frame
+                    if target is not None:
+                        last_person_seen = now
+                        held_person_command = auto_command
+                        held_detection = target
+                    elif now - last_person_seen < PERSON_LOST_HOLD_SECONDS:
+                        auto_command = held_person_command
+                        target = held_detection
+                    else:
+                        auto_command = "LINE_FOLLOW" if line_follow_enabled else "STOP"
+                        target = None
+
+                    display_command = auto_command if mode == "AUTO" else manual_command
+                    display = cv2.resize(
+                        frame, (DISPLAY_WIDTH, DISPLAY_HEIGHT),
+                        interpolation=cv2.INTER_LINEAR,
+                    )
+                    facing_text = target["facing"] if target else "-"
+                    cv2.putText(
+                        display,
+                        f"MODE: {mode}  LINE: {'ON' if line_follow_enabled else 'OFF'}  "
+                        f"CMD: {display_command}  FACING: {facing_text}",
+                        (12, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2,
+                    )
+                    cv2.imshow(window, display)
+
+            # ---- Phím bấm ----
+            if key in (ord("q"), 27):
+                break
+
+            if key in (ord("m"), ord("M")):
+                mode = "MANUAL" if mode == "AUTO" else "AUTO"
+                if mode == "MANUAL":
+                    manual_command = "STOP"
+                print(f"[MODE] {mode}")
+
+            if key in (ord("l"), ord("L")):
+                line_follow_enabled = not line_follow_enabled
+                print(f"[LINE FOLLOW] {'ON' if line_follow_enabled else 'OFF'}")
+
+            if mode == "MANUAL":
+                manual_keys = {
+                    ord("w"): "FORWARD",
+                    ord("2"): "RIGHT_SMALL",
+                    ord("3"): "RIGHT_MEDIUM",
+                    ord("4"): "RIGHT_LARGE",
+                    ord("5"): "LEFT_SMALL",
+                    ord("6"): "LEFT_MEDIUM",
+                    ord("7"): "LEFT_LARGE",
+                    ord("s"): "BACKWARD",
+                    ord("x"): "STOP",
+                }
+                if key in manual_keys:
+                    manual_command = manual_keys[key]
+                    print(f"[MANUAL] {manual_command}")
+
+            # ---- Giao lệnh cho thread gửi ----
+            if mode == "AUTO":
+                if target is not None:
+                    source = "YOLO"
+                else:
+                    source = "LINE_FOLLOW" if line_follow_enabled else "LINE_FOLLOW_DISABLED"
+                sender.set(auto_command, source, target)
+            else:
+                # MANUAL: lệnh do phím quyết định, nhưng vẫn gửi nhãn trước/sau
+                sender.set(manual_command, "MANUAL", target)
+
+    except KeyboardInterrupt:
+        print("Stopped by user.")
+    finally:
+        print("Requesting STOP...")
+        sender.stop()
+        grabber.running = False
+        send_command("STOP", source="SAFETY")
+        camera_sock.close()
+        cv2.destroyAllWindows()
+        print("Closed.")
+
+
+if __name__ == "__main__":
+    main()
