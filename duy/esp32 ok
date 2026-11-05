@@ -1,0 +1,476 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <ArduinoJson.h>   // ArduinoJson v6
+#include "esp_camera.h"
+
+// =====================================================
+// CẤU HÌNH
+// =====================================================
+const char* ssid     = "Wifi free";
+const char* password = "77777777";
+
+const int CAMERA_PORT  = 3333;
+const int COMMAND_PORT = 80;
+
+// UART tới STM32 (chỉ gửi 1 byte, KHÔNG gửi newline)
+#define STM32_RX   2
+#define STM32_TX   1
+#define STM32_BAUD 115200
+
+// Các chân tín hiệu ra
+#define STOP_SIGNAL_PIN 47   // HIGH khi lệnh STOP
+#define FRONT_PIN       0   // HIGH khi thấy nhãn front
+#define BACK_PIN        3   // HIGH khi thấy nhãn back
+
+// Quá thời gian này không nhận được nhãn mới thì tắt cả hai chân
+const uint32_t FACING_TIMEOUT_MS = 1500;
+uint32_t lastFacingMs = 0;
+bool facingActive = false;
+
+// Camera ESP32-S3 + OV5640
+#define CAM_PIN_PWDN   -1
+#define CAM_PIN_RESET  -1
+#define CAM_PIN_XCLK   15
+#define CAM_PIN_SIOD   4
+#define CAM_PIN_SIOC   5
+#define CAM_PIN_D0     11
+#define CAM_PIN_D1     9
+#define CAM_PIN_D2     8
+#define CAM_PIN_D3     10
+#define CAM_PIN_D4     12
+#define CAM_PIN_D5     18
+#define CAM_PIN_D6     17
+#define CAM_PIN_D7     16
+#define CAM_PIN_VSYNC  6
+#define CAM_PIN_HREF   7
+#define CAM_PIN_PCLK   13
+
+HardwareSerial STM32Serial(1);
+WiFiServer cameraServer(CAMERA_PORT);
+WebServer commandServer(COMMAND_PORT);
+
+// =====================================================
+// LOG: 15 lệnh gần nhất (chỉ ghi/đọc trong loop() nên không cần mutex)
+// =====================================================
+struct LogEntry {
+  uint32_t id;
+  uint32_t ms;
+  String body, command, source, facing, object, position, note;
+  float confidence;
+  char code;
+  bool ok;
+};
+
+const int LOG_SIZE = 15;
+LogEntry logs[LOG_SIZE];
+uint32_t logCount = 0;
+
+void addLog(const String &body, const String &command, const String &source,
+            const String &facing, const String &object, const String &position,
+            float confidence, char code, bool ok, const String &note) {
+  LogEntry &e = logs[logCount % LOG_SIZE];
+  e.id = logCount + 1;
+  e.ms = millis();
+  e.body = body.substring(0, 160);
+  e.command = command;
+  e.source = source;
+  e.facing = facing;
+  e.object = object;
+  e.position = position;
+  e.confidence = confidence;
+  e.code = code;
+  e.ok = ok;
+  e.note = note;
+  logCount++;
+}
+
+// =====================================================
+// CAMERA
+// =====================================================
+void initCamera() {
+  camera_config_t config;
+  memset(&config, 0, sizeof(config));
+
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer   = LEDC_TIMER_0;
+  config.pin_pwdn     = CAM_PIN_PWDN;
+  config.pin_reset    = CAM_PIN_RESET;
+  config.pin_xclk     = CAM_PIN_XCLK;
+  config.pin_sccb_sda = CAM_PIN_SIOD;
+  config.pin_sccb_scl = CAM_PIN_SIOC;
+  config.pin_d0 = CAM_PIN_D0;
+  config.pin_d1 = CAM_PIN_D1;
+  config.pin_d2 = CAM_PIN_D2;
+  config.pin_d3 = CAM_PIN_D3;
+  config.pin_d4 = CAM_PIN_D4;
+  config.pin_d5 = CAM_PIN_D5;
+  config.pin_d6 = CAM_PIN_D6;
+  config.pin_d7 = CAM_PIN_D7;
+  config.pin_vsync = CAM_PIN_VSYNC;
+  config.pin_href  = CAM_PIN_HREF;
+  config.pin_pclk  = CAM_PIN_PCLK;
+  config.xclk_freq_hz = 10000000;
+  config.pixel_format = PIXFORMAT_JPEG;
+  config.frame_size   = FRAMESIZE_QVGA;   // 320x240
+
+  if (psramFound()) {
+    config.jpeg_quality = 12;
+    config.fb_count     = 2;
+    config.fb_location  = CAMERA_FB_IN_PSRAM;
+    config.grab_mode    = CAMERA_GRAB_LATEST;
+  } else {
+    config.jpeg_quality = 16;
+    config.fb_count     = 1;
+    config.fb_location  = CAMERA_FB_IN_DRAM;
+    config.grab_mode    = CAMERA_GRAB_WHEN_EMPTY;
+  }
+
+  esp_err_t err = esp_camera_init(&config);
+  if (err != ESP_OK) {
+    Serial.printf("Camera init failed: 0x%x\n", err);
+    while (true) delay(100);
+  }
+
+  sensor_t *s = esp_camera_sensor_get();
+  if (s) {
+    s->set_vflip(s, 0);
+    s->set_hmirror(s, 0);
+  }
+  Serial.println("Camera init OK.");
+}
+
+// Frame: "FRAM" + 4 byte size (little-endian) + JPEG
+bool writeAll(WiFiClient &client, const uint8_t *data, size_t len) {
+  size_t sent = 0;
+  uint32_t t0 = millis();
+  while (sent < len) {
+    if (!client.connected()) return false;
+    size_t n = client.write(data + sent, len - sent);
+    if (n == 0) {
+      if (millis() - t0 > 2000) return false;   // laptop không đọc -> bỏ
+      vTaskDelay(1);
+      continue;
+    }
+    sent += n;
+    t0 = millis();
+  }
+  return true;
+}
+
+bool sendFrame(WiFiClient &client) {
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) return false;
+
+  bool ok = false;
+  if (fb->format == PIXFORMAT_JPEG) {
+    uint8_t header[8] = {'F', 'R', 'A', 'M'};
+    uint32_t len = fb->len;
+    memcpy(header + 4, &len, 4);
+    ok = writeAll(client, header, 8) && writeAll(client, fb->buf, fb->len);
+  }
+  esp_camera_fb_return(fb);
+  return ok;
+}
+
+// Task camera chạy riêng trên core 0, không chặn HTTP
+void cameraTask(void *param) {
+  for (;;) {
+    WiFiClient client = cameraServer.available();
+    if (client) {
+      client.setNoDelay(true);
+      Serial.println("Python camera client connected.");
+      while (client.connected()) {
+        if (!sendFrame(client)) break;
+        vTaskDelay(pdMS_TO_TICKS(40));          // tối đa ~25 fps
+      }
+      client.stop();
+      Serial.println("Python camera client disconnected.");
+    }
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+}
+
+// =====================================================
+// WIFI
+// =====================================================
+void connectWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting to Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+// =====================================================
+// LỆNH -> BYTE STM32
+// =====================================================
+String normalizeCommand(String command) {
+  command.trim();
+  command.toUpperCase();
+  command.replace("-", "_");
+  command.replace(" ", "_");
+
+  if (command == "A" || command == "LINE_ON" || command == "LINE_FOLLOW_ON")
+    return "LINE_FOLLOW";
+  if (command == "LINE_OFF" || command == "LINE_FOLLOW_OFF") return "STOP";
+  if (command == "STRAIGHT") return "FORWARD";
+  if (command == "REVERSE" || command == "BACK") return "BACKWARD";
+  if (command == "RIGHT") return "RIGHT_MEDIUM";
+  if (command == "LEFT")  return "LEFT_MEDIUM";
+  return command;
+}
+
+char commandToSTM32Code(const String &command) {
+  if (command == "LINE_FOLLOW")  return 'A';
+  if (command == "FORWARD")      return '1';
+  if (command == "RIGHT_SMALL")  return '2';
+  if (command == "RIGHT_MEDIUM") return '3';
+  if (command == "RIGHT_LARGE")  return '4';
+  if (command == "LEFT_SMALL")   return '5';
+  if (command == "LEFT_MEDIUM")  return '6';
+  if (command == "LEFT_LARGE")   return '7';
+  if (command == "BACKWARD")     return '8';
+  if (command == "STOP")         return '0';
+  return '\0';
+}
+
+// =====================================================
+// CHÂN FRONT / BACK
+// =====================================================
+void setFacingPins(bool front, bool back) {
+  digitalWrite(FRONT_PIN, front ? HIGH : LOW);
+  digitalWrite(BACK_PIN,  back  ? HIGH : LOW);
+  facingActive = front || back;
+}
+
+void applyFacingPins(const String &facing) {
+  bool isFront = (facing == "front");
+  bool isBack  = (facing == "back");
+  setFacingPins(isFront, isBack);
+  if (isFront || isBack) lastFacingMs = millis();
+  Serial.printf("[FACING] '%s' -> FRONT_PIN=%d BACK_PIN=%d\n",
+                facing.c_str(), isFront, isBack);
+}
+
+// =====================================================
+// HTTP
+// =====================================================
+void sendJsonError(int statusCode, const char* message) {
+  StaticJsonDocument<160> response;
+  response["status"] = "ERROR";
+  response["message"] = message;
+  String out;
+  serializeJson(response, out);
+  commandServer.send(statusCode, "application/json", out);
+}
+
+void handleCommandPost() {
+  String body = commandServer.arg("plain");
+  Serial.println("[HTTP] " + body);
+
+  StaticJsonDocument<384> doc;
+  if (deserializeJson(doc, body)) {
+    addLog(body, "", "", "", "", "", 0, '\0', false, "Invalid JSON");
+    sendJsonError(400, "Invalid JSON");
+    return;
+  }
+
+  String source     = doc["source"]   | "";
+  String facing     = doc["facing"]   | "";
+  String object     = doc["object"]   | "";
+  String position   = doc["position"] | "";
+  float  confidence = doc["confidence"] | 0.0f;
+  String rawCommand = doc["command"]  | "";
+
+  if (rawCommand.length() == 0) {
+    addLog(body, "", source, facing, object, position, confidence, '\0', false, "Missing command");
+    sendJsonError(400, "Missing command");
+    return;
+  }
+
+  String command = normalizeCommand(rawCommand);
+  char code = commandToSTM32Code(command);
+  if (code == '\0') {
+    addLog(body, command, source, facing, object, position, confidence, '\0', false, "Invalid command");
+    sendJsonError(400, "Invalid command");
+    return;
+  }
+
+  digitalWrite(STOP_SIGNAL_PIN, command == "STOP" ? HIGH : LOW);
+  applyFacingPins(facing);
+
+  size_t written = STM32Serial.write((uint8_t)code);
+  Serial.printf("[STM32 TX] %s -> '%c'\n", command.c_str(), code);
+
+  if (written != 1) {
+    addLog(body, command, source, facing, object, position, confidence, code, false, "UART write failed");
+    sendJsonError(500, "UART write failed");
+    return;
+  }
+
+  addLog(body, command, source, facing, object, position, confidence, code, true, "");
+
+  StaticJsonDocument<192> response;
+  response["status"] = "OK";
+  response["command"] = command;
+  response["stm32_byte"] = String(code);
+  response["facing"] = facing;
+  String out;
+  serializeJson(response, out);
+  commandServer.send(200, "application/json", out);
+}
+
+void handleLogGet() {
+  DynamicJsonDocument doc(12288);
+  doc["uptime_ms"] = millis();
+  doc["total"] = logCount;
+  doc["rssi"] = WiFi.RSSI();
+  JsonArray arr = doc.createNestedArray("entries");
+
+  uint32_t n = logCount < LOG_SIZE ? logCount : LOG_SIZE;
+  for (uint32_t i = 0; i < n; i++) {
+    LogEntry &e = logs[(logCount - 1 - i) % LOG_SIZE];   // mới nhất trước
+    JsonObject o = arr.createNestedObject();
+    o["id"] = e.id;
+    o["ms"] = e.ms;
+    o["body"] = e.body;
+    o["command"] = e.command;
+    o["source"] = e.source;
+    o["facing"] = e.facing;
+    o["object"] = e.object;
+    o["position"] = e.position;
+    o["confidence"] = e.confidence;
+    o["code"] = e.code ? String(e.code) : String("");
+    o["ok"] = e.ok;
+    o["note"] = e.note;
+  }
+
+  String out;
+  serializeJson(doc, out);
+  commandServer.sendHeader("Cache-Control", "no-store");
+  commandServer.send(200, "application/json", out);
+}
+
+// =====================================================
+// TRANG WEB THEO DÕI: http://IP_ESP32/
+// =====================================================
+const char INDEX_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="vi"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP32 Monitor</title>
+<style>
+body{font-family:Arial,sans-serif;margin:0;background:#111;color:#eee}
+header{padding:14px 18px;background:#1c1c1c;border-bottom:1px solid #333}
+h1{margin:0;font-size:18px}
+.cards{display:flex;flex-wrap:wrap;gap:10px;padding:14px 18px}
+.card{background:#1c1c1c;border:1px solid #333;border-radius:8px;padding:10px 14px;min-width:120px}
+.l{font-size:12px;color:#999}.v{font-size:22px;font-weight:600;margin-top:2px}
+.ok{color:#4ade80}.bad{color:#f87171}.warn{color:#fbbf24}
+.wrap{overflow-x:auto;padding:0 18px 18px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:6px 8px;border-bottom:1px solid #2a2a2a;text-align:left}
+th{color:#999;font-weight:500}
+.tag{padding:2px 7px;border-radius:4px}
+.front{background:#14532d}.back{background:#7f1d1d}.unknown{background:#333}
+code{color:#93c5fd}
+</style></head><body>
+<header><h1>ESP32-S3 CAM - Lệnh nhận từ laptop</h1></header>
+<div class="cards">
+<div class="card"><div class="l">Kết nối</div><div class="v" id="conn">...</div></div>
+<div class="card"><div class="l">Lệnh mới nhất</div><div class="v" id="cmd">-</div></div>
+<div class="card"><div class="l">Trước/Sau</div><div class="v" id="face">-</div></div>
+<div class="card"><div class="l">Byte STM32</div><div class="v" id="byte">-</div></div>
+<div class="card"><div class="l">Nhận lần cuối</div><div class="v" id="ago">-</div></div>
+<div class="card"><div class="l">Tổng lệnh</div><div class="v" id="total">0</div></div>
+<div class="card"><div class="l">RSSI</div><div class="v" id="rssi">-</div></div>
+</div>
+<div class="wrap"><table>
+<thead><tr><th>#</th><th>Lệnh</th><th>Nguồn</th><th>Nhãn</th><th>Vật</th><th>Vị trí</th><th>Conf</th><th>Byte</th><th>Kết quả</th><th>JSON gốc</th></tr></thead>
+<tbody id="rows"></tbody></table></div>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+async function tick(){
+ try{
+  const d=await (await fetch('/log',{cache:'no-store'})).json();
+  $('conn').textContent='ONLINE';$('conn').className='v ok';
+  $('total').textContent=d.total;$('rssi').textContent=d.rssi+' dBm';
+  const e=d.entries;
+  if(e.length){
+   const t=e[0];
+   $('cmd').textContent=t.command||'-';
+   $('face').textContent=t.facing||'-';
+   $('byte').textContent=t.code||'-';
+   const ago=(d.uptime_ms-t.ms)/1000;
+   $('ago').textContent=ago.toFixed(1)+' s';
+   $('ago').className='v '+(ago<2?'ok':ago<5?'warn':'bad');
+  }
+  $('rows').innerHTML=e.map(x=>`<tr><td>${x.id}</td><td><b>${esc(x.command)}</b></td>
+   <td>${esc(x.source)}</td>
+   <td><span class="tag ${esc(x.facing||'unknown')}">${esc(x.facing||'-')}</span></td>
+   <td>${esc(x.object||'-')}</td><td>${esc(x.position||'-')}</td>
+   <td>${x.confidence?x.confidence.toFixed(2):'-'}</td><td>${esc(x.code||'-')}</td>
+   <td class="${x.ok?'ok':'bad'}">${x.ok?'OK':'LỖI'} ${esc(x.note||'')}</td>
+   <td><code>${esc(x.body)}</code></td></tr>`).join('');
+ }catch(err){$('conn').textContent='MẤT KẾT NỐI';$('conn').className='v bad';}
+}
+tick();setInterval(tick,2000);
+</script></body></html>
+)rawliteral";
+
+void handleRoot() {
+  commandServer.send_P(200, "text/html; charset=utf-8", INDEX_HTML);
+}
+
+// =====================================================
+// SETUP / LOOP
+// =====================================================
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  pinMode(STOP_SIGNAL_PIN, OUTPUT);
+  digitalWrite(STOP_SIGNAL_PIN, LOW);
+
+  pinMode(FRONT_PIN, OUTPUT);
+  pinMode(BACK_PIN, OUTPUT);
+  setFacingPins(false, false);
+
+  STM32Serial.begin(STM32_BAUD, SERIAL_8N1, STM32_RX, STM32_TX);
+
+  initCamera();
+  connectWiFi();
+
+  cameraServer.begin();
+
+  commandServer.on("/", HTTP_GET, handleRoot);
+  commandServer.on("/log", HTTP_GET, handleLogGet);
+  commandServer.on("/command", HTTP_POST, handleCommandPost);
+  commandServer.onNotFound([]() { sendJsonError(404, "Endpoint not found"); });
+  commandServer.begin();
+
+  // Camera chạy task riêng trên core 0
+  xTaskCreatePinnedToCore(cameraTask, "camTask", 8192, NULL, 1, NULL, 0);
+
+  Serial.println("Ready. Web monitor: http://" + WiFi.localIP().toString() + "/");
+}
+
+void loop() {
+  commandServer.handleClient();
+
+  // Mất tín hiệu từ laptop quá lâu -> tắt cả hai chân front/back
+  if (facingActive && millis() - lastFacingMs > FACING_TIMEOUT_MS) {
+    setFacingPins(false, false);
+    Serial.println("[FACING] timeout -> both pins LOW");
+  }
+  delay(1);
+}
